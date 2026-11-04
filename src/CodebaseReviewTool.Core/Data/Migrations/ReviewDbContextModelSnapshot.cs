@@ -86,6 +86,9 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                     b.Property<int>("Id")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("RepositoryKey")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("AuthorName")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -101,10 +104,6 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("LastSeenAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RepositoryKey")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("SourceBranch")
@@ -131,9 +130,9 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id", "RepositoryKey");
 
-                    b.HasIndex("RepositoryKey");
+                    b.HasIndex("RepositoryKey", "IsOpen");
 
                     b.ToTable("PullRequests", (string)null);
                 });
@@ -180,7 +179,7 @@ namespace CodebaseReviewTool.Core.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PullRequestId");
+                    b.HasIndex("PullRequestId", "RepositoryKey");
 
                     b.ToTable("Reviews", (string)null);
                 });
@@ -260,7 +259,7 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                 {
                     b.HasOne("CodebaseReviewTool.Core.Data.Entities.PullRequest", "PullRequest")
                         .WithMany("Reviews")
-                        .HasForeignKey("PullRequestId")
+                        .HasForeignKey("PullRequestId", "RepositoryKey")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 

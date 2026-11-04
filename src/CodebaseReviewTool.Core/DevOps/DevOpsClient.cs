@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using CodebaseReviewTool.Core.Configuration;
+using CodebaseReviewTool.Core.Git;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -30,6 +31,12 @@ internal sealed partial class DevOpsClient : IDevOpsClient
 
     // Project-less repository list: needs only Code (Read) and exists on every version.
     private const string ProbePath = "_apis/git/repositories";
+
+    // Page size for list calls; a page shorter than this is the last one.
+    private const int PageSize = 100;
+
+    // Guards against a server that never returns a short page.
+    private const int MaxPages = 100;
 
     private readonly HttpClient _httpClient;
     private readonly DevOpsOptions _options;
@@ -109,6 +116,62 @@ internal sealed partial class DevOpsClient : IDevOpsClient
         }
     }
 
+    public async Task<DevOpsListResult<DevOpsPullRequest>> ListActivePullRequestsAsync(
+        ResolvedRepository repository,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        if (MissingCredentials() is { } missing)
+        {
+            return DevOpsListResult<DevOpsPullRequest>.Failure(missing);
+        }
+
+        var basePath = PullRequestsPath(repository);
+        var items = new List<DevOpsPullRequest>();
+        for (var page = 0; page < MaxPages; page++)
+        {
+            var path = $"{basePath}?searchCriteria.status=active&$top={PageSize}&$skip={page * PageSize}";
+            var result = await GetJsonAsync<ListResponse<DevOpsPullRequest>>(path, cancellationToken);
+            if (!result.Succeeded)
+            {
+                return DevOpsListResult<DevOpsPullRequest>.Failure(result.Error!);
+            }
+
+            var pageItems = result.Value!.Value ?? [];
+            items.AddRange(pageItems);
+            if (pageItems.Count < PageSize)
+            {
+                // A pull request created while paging can shift into the next page and appear twice.
+                var distinct = items.DistinctBy(p => p.PullRequestId).ToList();
+                distinct.ForEach(p => p.WebUrl = PullRequestWebUrl(repository, p.PullRequestId));
+                return DevOpsListResult<DevOpsPullRequest>.Success(distinct);
+            }
+        }
+
+        return DevOpsListResult<DevOpsPullRequest>.Failure(
+            $"More than {MaxPages * PageSize} active pull requests from {basePath}; stopped paging.");
+    }
+
+    public async Task<DevOpsResult<DevOpsPullRequest>> GetPullRequestAsync(
+        ResolvedRepository repository,
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        if (MissingCredentials() is { } missing)
+        {
+            return DevOpsResult<DevOpsPullRequest>.Failure(missing);
+        }
+
+        var result = await GetJsonAsync<DevOpsPullRequest>($"{PullRequestsPath(repository)}/{id}", cancellationToken);
+        if (result.Succeeded)
+        {
+            result.Value!.WebUrl = PullRequestWebUrl(repository, result.Value.PullRequestId);
+        }
+
+        return result;
+    }
+
     /// <summary>Appends <c>api-version=&lt;version&gt;</c> to a relative path that may already have a query string.</summary>
     internal static string WithApiVersion(string pathAndQuery, string apiVersion)
     {
@@ -183,6 +246,60 @@ internal sealed partial class DevOpsClient : IDevOpsClient
             $"The server rejected every api-version ({string.Join(", ", rejected)}); set DevOps:ApiVersion explicitly.");
     }
 
+    /// <summary>
+    /// GETs a versioned endpoint and deserialises its JSON body. Authentication, HTTP, network, timeout and JSON
+    /// failures come back as a failed result naming the HTTP status (when there was one) and the request path.
+    /// </summary>
+    private async Task<DevOpsResult<T>> GetJsonAsync<T>(string pathAndQuery, CancellationToken cancellationToken)
+        where T : class
+    {
+        var path = SanitisedPath(pathAndQuery);
+        try
+        {
+            using var response = await GetVersionedAsync(pathAndQuery, cancellationToken);
+            if (AuthOrFormatFailure(response, path) is { } failure)
+            {
+                return DevOpsResult<T>.Failure(failure);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return DevOpsResult<T>.Failure($"HTTP {(int)response.StatusCode} {response.ReasonPhrase} from {path}.");
+            }
+
+            var value = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+            return value is null
+                ? DevOpsResult<T>.Failure($"HTTP {(int)response.StatusCode} with an empty body from {path}.")
+                : DevOpsResult<T>.Success(value);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            // Callers decide how loudly to report the failure; the poller logs it at Warning.
+            _logger.LogDebug(ex, "DevOps call to {Path} failed", path);
+            return DevOpsResult<T>.Failure($"{ex.GetType().Name} from {path}: {ex.Message}");
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "DevOps call to {Path} timed out", path);
+            return DevOpsResult<T>.Failure($"Timed out after {_httpClient.Timeout.TotalSeconds:0} s calling {path}.");
+        }
+    }
+
+    /// <summary>The repository's pull request collection, relative to the organisation URL, with names escaped.</summary>
+    private static string PullRequestsPath(ResolvedRepository repository) =>
+        $"{Uri.EscapeDataString(repository.Project)}/_apis/git/repositories/{Uri.EscapeDataString(repository.Repository)}/pullrequests";
+
+    /// <summary>The pull request's page in the DevOps web UI.</summary>
+    private string PullRequestWebUrl(ResolvedRepository repository, int id) =>
+        $"{_options.OrganizationUrl.TrimEnd('/')}/{Uri.EscapeDataString(repository.Project)}/_git/{Uri.EscapeDataString(repository.Repository)}/pullrequest/{id}";
+
+    /// <summary>The request path without its query string, for error messages and logs.</summary>
+    private static string SanitisedPath(string pathAndQuery)
+    {
+        var query = pathAndQuery.IndexOf('?', StringComparison.Ordinal);
+        return query < 0 ? pathAndQuery : pathAndQuery[..query];
+    }
+
     private string? MissingCredentials() => _options.HasCredentials
         ? null
         : "DevOps:Pat is not set (dotnet user-secrets set \"DevOps:Pat\" \"<token>\"), and DevOps:UseDefaultCredentials is false.";
@@ -212,6 +329,13 @@ internal sealed partial class DevOpsClient : IDevOpsClient
     // "The requested REST API version of 7.1 is out of range for this server".
     [GeneratedRegex(@"api[- ]?version|VersionOutOfRange", RegexOptions.IgnoreCase)]
     private static partial Regex ApiVersionRejectedRegex();
+
+    /// <summary>The envelope DevOps wraps every list response in.</summary>
+    private sealed class ListResponse<T>
+    {
+        [JsonPropertyName("value")]
+        public List<T>? Value { get; set; }
+    }
 
     private sealed class ConnectionData
     {

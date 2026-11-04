@@ -1,3 +1,23 @@
+@using CodebaseReviewTool.Core.Data
+@using CodebaseReviewTool.Core.Data.Enums
+@using CodebaseReviewTool.Core.Git
+@using CodebaseReviewTool.Core.Hosting
+@using CodebaseReviewTool.Core.Reviews
+@using CodebaseReviewTool.Host.Components.Shared
+@using Microsoft.EntityFrameworkCore
+
+@rendermode InteractiveServer
+
+@implements IDisposable
+
+@inject IDbContextFactory<ReviewDbContext> DbContextFactory
+@inject ILogger<Home> Logger
+@inject IPollStatus PollStatus
+@inject IPollTrigger PollTrigger
+@inject IRepositoryRegistry RepositoryRegistry
+@inject ReviewEvents ReviewEvents
+@inject ReviewService ReviewService
+
 @page "/"
 
 <PageTitle>Pull requests - Codebase Review Tool</PageTitle>
@@ -5,14 +25,225 @@
 <div class="page-head">
     <div class="page-head-text">
         <h1 class="page-title">Open pull requests</h1>
-        <p class="page-lede">Pull requests from the configured repositories will be listed here once DevOps polling is connected.</p>
+        <p class="page-lede">@_items.Count open · @_items.Count(i => i.IsReviewing) reviewing · @_items.Count(i => i.State == ReviewState.Completed) reviewed</p>
+
+        <p class="@(PollError is null ? "poll-status" : "poll-error poll-status")">
+            @(PollError ?? PollText)
+
+            @if (PollStatus.IsEnabled)
+            {
+                <button @onclick="PollTrigger.RequestPoll"
+                        aria-label="Refresh now"
+                        class="poll-refresh"
+                        disabled="@PollStatus.IsPolling"
+                        title="Refresh now"
+                        type="button">
+
+                    ↻
+
+                </button>
+            }
+        </p>
     </div>
 </div>
 
-<section class="section">
+<section class="pr-section section">
+    <div class="list-head">
+        <h2 class="list-title">Reviewed</h2>
+        <span class="count">@_reviewed.Count</span>
+    </div>
+
+    @if (_reviewed.Count == 0)
+    {
+        <p class="empty">No reviews yet.</p>
+    }
+
+    @foreach (var item in _reviewed)
+    {
+        <PullRequestListRow @key="item.Key"
+                            Error="@_rowErrors.GetValueOrDefault(item.Key)"
+                            IsStarting="@_starting.Contains(item.Key)"
+                            Item="item"
+                            OnStart="() => StartReviewAsync(item)" />
+    }
+</section>
+
+<section class="pr-section section">
     <div class="list-head">
         <h2 class="list-title">Open</h2>
-        <span class="count">0</span>
+        <span class="count">@_open.Count</span>
     </div>
-    <p class="empty">Nothing to show yet.</p>
+
+    @if (_items.Count == 0)
+    {
+        <p class="empty">No open pull requests.</p>
+    }
+    else if (_open.Count == 0)
+    {
+        <p class="empty">Every open pull request has a review.</p>
+    }
+
+    @foreach (var item in _open)
+    {
+        <PullRequestListRow @key="item.Key"
+                            Error="@_rowErrors.GetValueOrDefault(item.Key)"
+                            IsStarting="@_starting.Contains(item.Key)"
+                            Item="item"
+                            OnStart="() => StartReviewAsync(item)" />
+    }
 </section>
+
+@code {
+    // Re-renders between polls so "Updated N minutes ago" stays true.
+    private static readonly TimeSpan _clockInterval = TimeSpan.FromSeconds(30);
+
+    private readonly Dictionary<string, string> _rowErrors = [];
+    private readonly HashSet<string> _starting = [];
+
+    private List<PullRequestListItem> _items = [];
+    private List<PullRequestListItem> _reviewed = [];
+    private List<PullRequestListItem> _open = [];
+    private Timer? _clock;
+
+    private string? PollError => PollStatus.IsEnabled ? PollStatus.LastError : null;
+
+    private string PollText => PollStatus switch
+    {
+        { IsEnabled: false } => "DevOps polling is disabled: no PAT is set and Windows authentication is off.",
+        { LastSuccessfulPollUtc: { } last } => $"Updated {Ago(last)}",
+        { IsPolling: true } => "Fetching pull requests…",
+        _ => "Waiting for the first poll.",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        ReviewEvents.PullRequestsChanged += OnPullRequestsChanged;
+        ReviewEvents.ReviewChanged += OnReviewChanged;
+        PollStatus.Changed += OnPollStatusChanged;
+        _clock = new Timer(_ => OnPollStatusChanged(), null, _clockInterval, _clockInterval);
+
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        ReviewEvents.PullRequestsChanged -= OnPullRequestsChanged;
+        ReviewEvents.ReviewChanged -= OnReviewChanged;
+        PollStatus.Changed -= OnPollStatusChanged;
+        _clock?.Dispose();
+    }
+
+    // Event handlers run on the publisher's thread; InvokeAsync moves the work onto this circuit's dispatcher.
+    private void OnPullRequestsChanged() => _ = InvokeAsync(ReloadAsync);
+
+    private void OnReviewChanged(ReviewChangedEventArgs args) => _ = InvokeAsync(ReloadAsync);
+
+    private void OnPollStatusChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Reloading the pull request list failed");
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbContextFactory.CreateDbContextAsync();
+
+        // Rows of repositories no longer configured are never polled again, so they are left out.
+        var keys = RepositoryRegistry.Repositories.Select(r => r.Key).ToList();
+
+        var pullRequests = await db.PullRequests
+            .AsNoTracking()
+            .Where(p => p.IsOpen && keys.Contains(p.RepositoryKey))
+            .ToListAsync();
+
+        // Only each open pull request's latest review matters here (ids grow, so the highest is the latest); its step
+        // runs are loaded because the review's state is derived from them.
+        var latestReviews = await db.Reviews
+            .AsNoTracking()
+            .Include(r => r.StepRuns)
+            .Where(r => r.PullRequest!.IsOpen
+                && keys.Contains(r.RepositoryKey)
+                && r.Id == db.Reviews
+                    .Where(o => o.PullRequestId == r.PullRequestId && o.RepositoryKey == r.RepositoryKey)
+                    .Max(o => o.Id))
+            .ToListAsync();
+
+        // Issue counts are aggregated in the database rather than loading every issue.
+        var latestIds = latestReviews.Select(r => r.Id).ToList();
+        var issueCounts = await db.Issues
+            .Where(i => latestIds.Contains(i.ReviewId))
+            .GroupBy(i => i.ReviewId)
+            .Select(g => new
+            {
+                ReviewId = g.Key,
+                Total = g.Count(),
+                High = g.Count(i => i.Severity == IssueSeverity.Critical || i.Severity == IssueSeverity.High),
+            })
+            .ToDictionaryAsync(c => c.ReviewId);
+
+        var reviews = latestReviews.ToDictionary(r => PullRequestListItem.KeyFor(r.RepositoryKey, r.PullRequestId));
+
+        _items = [.. pullRequests.Select(p =>
+        {
+            var review = reviews.GetValueOrDefault(PullRequestListItem.KeyFor(p.RepositoryKey, p.Id));
+            var counts = review is null ? null : issueCounts.GetValueOrDefault(review.Id);
+            var name = RepositoryRegistry.Find(p.RepositoryKey)?.DisplayName ?? p.RepositoryKey;
+            return new PullRequestListItem(p, name, review, counts?.Total ?? 0, counts?.High ?? 0);
+        })];
+
+        _reviewed = [.. _items
+            .Where(i => i.LatestReview is not null)
+            .OrderByDescending(i => i.LatestReview!.QueuedAt)
+            .ThenByDescending(i => i.LatestReview!.Id)];
+
+        _open = [.. _items
+            .Where(i => i.LatestReview is null)
+            .OrderByDescending(i => i.PullRequest.CreatedAt)];
+    }
+
+    private async Task StartReviewAsync(PullRequestListItem item)
+    {
+        if (!_starting.Add(item.Key))
+        {
+            return;
+        }
+
+        _rowErrors.Remove(item.Key);
+        try
+        {
+            // ReviewChanged reloads the list, which moves the row into its new state.
+            await ReviewService.StartReviewAsync(item.PullRequest.Id, item.PullRequest.RepositoryKey);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _rowErrors[item.Key] = ex.Message;
+        }
+        finally
+        {
+            _starting.Remove(item.Key);
+        }
+    }
+
+    private static string Ago(DateTime utc)
+    {
+        var elapsed = DateTime.UtcNow - utc;
+        return elapsed switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalHours: < 1 } => Plural((int)elapsed.TotalMinutes, "minute") + " ago",
+            { TotalDays: < 1 } => Plural((int)elapsed.TotalHours, "hour") + " ago",
+            _ => Plural((int)elapsed.TotalDays, "day") + " ago",
+        };
+    }
+
+    private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+}

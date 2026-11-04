@@ -46,7 +46,7 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PullRequests", x => x.Id);
+                    table.PrimaryKey("PK_PullRequests", x => new { x.Id, x.RepositoryKey });
                 });
 
             migrationBuilder.CreateTable(
@@ -70,10 +70,10 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                 {
                     table.PrimaryKey("PK_Reviews", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_Reviews_PullRequests_PullRequestId",
-                        column: x => x.PullRequestId,
+                        name: "FK_Reviews_PullRequests_PullRequestId_RepositoryKey",
+                        columns: x => new { x.PullRequestId, x.RepositoryKey },
                         principalTable: "PullRequests",
-                        principalColumn: "Id",
+                        principalColumns: new[] { "Id", "RepositoryKey" },
                         onDelete: ReferentialAction.Restrict);
                 });
 
@@ -141,14 +141,14 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                 column: "ReviewId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PullRequests_RepositoryKey",
+                name: "IX_PullRequests_RepositoryKey_IsOpen",
                 table: "PullRequests",
-                column: "RepositoryKey");
+                columns: new[] { "RepositoryKey", "IsOpen" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Reviews_PullRequestId",
+                name: "IX_Reviews_PullRequestId_RepositoryKey",
                 table: "Reviews",
-                column: "PullRequestId");
+                columns: new[] { "PullRequestId", "RepositoryKey" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_ReviewStepRuns_ReviewId",

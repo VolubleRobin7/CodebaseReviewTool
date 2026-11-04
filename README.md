@@ -59,6 +59,10 @@ dotnet run --project src/CodebaseReviewTool.Host
 - UI: http://localhost:5210
 - Health check: http://localhost:5210/api/health (returns `OK`)
 
+The home page lists the open pull requests of the configured repositories, read from DevOps
+at startup and then every `DevOps:PollIntervalSeconds`. "Start review" queues a review of a
+pull request; reviews do not run yet.
+
 ## Design
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) for the architecture,

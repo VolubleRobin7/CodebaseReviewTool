@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 1 complete (configuration, repository resolution, database with seeded default prompts, Configuration page with checks). Phases 2+ not started.
+Status: Phase 2 complete (DevOps pull requests, poller, cache, pull request list). Phases 3+ not started.
 
 ---
 

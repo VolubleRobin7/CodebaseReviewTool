@@ -4,6 +4,7 @@ using CodebaseReviewTool.Core.DevOps;
 using CodebaseReviewTool.Core.Git;
 using CodebaseReviewTool.Core.Hosting;
 using CodebaseReviewTool.Core.Processes;
+using CodebaseReviewTool.Core.Reviews;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,8 +45,20 @@ public static class ServiceCollectionExtensions
                 UseDefaultCredentials = sp.GetRequiredService<IOptions<DevOpsOptions>>().Value.UseDefaultCredentials,
             });
 
-        // Runs after options validation and before Kestrel listens: resolves repositories, migrates and seeds.
+        services.AddSingleton<ReviewEvents>();
+        services.AddSingleton<PullRequestCache>();
+        services.AddSingleton<PollStatus>();
+        services.AddSingleton<IPollStatus>(sp => sp.GetRequiredService<PollStatus>());
+        services.AddSingleton<PollTrigger>();
+        services.AddSingleton<IPollTrigger>(sp => sp.GetRequiredService<PollTrigger>());
+        services.AddSingleton<ReviewQueue>();
+        services.AddSingleton<ReviewService>();
+
+        // Hosted services start in registration order. The initializer runs after options validation and before
+        // Kestrel listens (resolves repositories, migrates and seeds), so the poller registered after it always
+        // finds the registry filled and the schema current.
         services.AddHostedService<StartupInitializer>();
+        services.AddHostedService<DevOpsPollService>();
 
         return services;
     }

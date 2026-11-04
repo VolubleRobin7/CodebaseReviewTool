@@ -549,3 +549,139 @@ button:focus-visible {
 .repo-row {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 90px minmax(0, 1.4fr);
 }
+
+/* ---- Pull request rows ---- */
+
+.pr-section {
+    gap: 0;
+}
+
+.poll-status {
+    margin: 0;
+    font-size: 13px;
+    color: var(--faint);
+}
+
+.poll-error {
+    color: var(--high);
+    overflow-wrap: anywhere;
+}
+
+/* Reads as one more character of the status line; spins while a poll is running. */
+.poll-refresh {
+    display: inline-block;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin-left: 4px;
+    font: inherit;
+    color: inherit;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.poll-refresh:hover:not(:disabled) {
+    color: var(--ink);
+}
+
+.poll-refresh:disabled {
+    cursor: default;
+    animation: spin 1s linear infinite;
+}
+
+.pr-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 32px;
+    align-items: center;
+    padding: 26px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.pr-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.pr-title-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 14px;
+}
+
+.pr-number {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--faint);
+}
+
+.pr-title {
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    text-wrap: pretty;
+}
+
+.pr-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+.pr-meta-item {
+    display: flex;
+    gap: 8px;
+}
+
+.pr-meta-label {
+    color: var(--faint);
+}
+
+.pr-meta-value {
+    color: var(--ink);
+}
+
+.pr-row-error {
+    display: block;
+    font-size: 13px;
+    color: var(--high);
+}
+
+.pr-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 16px;
+    min-width: 170px;
+}
+
+.pr-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+.pr-result {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    font-size: 12.5px;
+    color: var(--muted);
+}
+
+.pr-result-high,
+.pr-failed {
+    color: var(--high);
+}
+
+.pr-failed {
+    font-size: 13.5px;
+}

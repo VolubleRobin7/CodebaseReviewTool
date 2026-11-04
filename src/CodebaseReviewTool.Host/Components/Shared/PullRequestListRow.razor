@@ -1,0 +1,112 @@
+@using CodebaseReviewTool.Core.Data.Enums
+
+<div class="pr-row">
+    <div class="pr-main">
+        <div class="pr-title-line">
+            <span class="pr-number">#@Item.PullRequest.Id</span>
+            <span class="pr-title">@Item.PullRequest.Title</span>
+        </div>
+
+        <div class="pr-meta">
+            <span class="pr-meta-item">
+                <span class="pr-meta-label">Repo</span>
+                <span class="pr-meta-value">@Item.RepositoryName</span>
+            </span>
+            <span class="pr-meta-item">
+                <span class="pr-meta-label">Author</span>
+                <span class="pr-meta-value">@Item.PullRequest.AuthorName</span>
+            </span>
+            <span class="pr-meta-item">
+                <span class="pr-meta-label">Branch</span>
+                <span class="mono pr-meta-value">@Item.PullRequest.SourceBranch</span>
+            </span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Error))
+        {
+            <span class="pr-row-error">@Error</span>
+        }
+    </div>
+
+    <div class="pr-actions">
+        @switch (Item.State)
+        {
+            case null:
+                <button @onclick="OnStart"
+                        class="btn btn-primary"
+                        disabled="@IsStarting"
+                        type="button">
+
+                    Start review
+
+                </button>
+                break;
+
+            case ReviewState.Completed:
+                <span class="pr-result">
+                    <span>@Plural(Item.IssueCount, "issue")</span>
+                    @if (Item.HighCount > 0)
+                    {
+                        <span class="pr-result-high">@Item.HighCount high</span>
+                    }
+                </span>
+
+                <a class="btn btn-secondary"
+                   href="reviews/@Item.LatestReview!.Id">
+
+                    View report
+
+                </a>
+
+                <button @onclick="OnStart"
+                        class="btn btn-link"
+                        disabled="@IsStarting"
+                        type="button">
+
+                    Review again
+
+                </button>
+                break;
+
+            case ReviewState.Failed:
+                <span class="pr-failed">Review failed</span>
+
+                <button @onclick="OnStart"
+                        class="btn btn-secondary"
+                        disabled="@IsStarting"
+                        type="button">
+
+                    Retry
+
+                </button>
+                break;
+
+            default:
+                <span class="pr-status">
+                    <span class="spinner" />
+                    <span>Reviewing…</span>
+                </span>
+                break;
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The pull request and its latest review.</summary>
+    [Parameter, EditorRequired]
+    public PullRequestListItem Item { get; set; } = default!;
+
+    /// <summary>Why the last start attempt was refused, shown under the metadata; null for none.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>True while a start request for this row is in flight; disables the button.</summary>
+    [Parameter]
+    public bool IsStarting { get; set; }
+
+    /// <summary>Raised by "Start review", "Review again" and "Retry".</summary>
+    [Parameter]
+    public EventCallback OnStart { get; set; }
+
+    private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+}

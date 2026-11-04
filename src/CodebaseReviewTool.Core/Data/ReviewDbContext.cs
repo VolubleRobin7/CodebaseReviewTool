@@ -39,8 +39,10 @@ public class ReviewDbContext(DbContextOptions<ReviewDbContext> options) : DbCont
         modelBuilder.Entity<PullRequest>(entity =>
         {
             entity.ToTable("PullRequests");
+            entity.HasKey(e => new { e.Id, e.RepositoryKey });
             entity.Property(e => e.Id).ValueGeneratedNever();
-            entity.HasIndex(e => e.RepositoryKey);
+            // The poller marks a repository's open rows closed; the home page lists open rows.
+            entity.HasIndex(e => new { e.RepositoryKey, e.IsOpen });
         });
 
         modelBuilder.Entity<Review>(entity =>
@@ -48,11 +50,11 @@ public class ReviewDbContext(DbContextOptions<ReviewDbContext> options) : DbCont
             entity.ToTable("Reviews");
             entity.Ignore(e => e.State);
             entity.Ignore(e => e.CurrentStep);
-            entity.HasIndex(e => e.PullRequestId);
-            // Reviews outlive their PR's open state; PR rows are never deleted while reviews exist.
+            // Reviews outlive their PR's open state; PR rows are never deleted while reviews exist. The foreign key
+            // gets its own (PullRequestId, RepositoryKey) index by convention.
             entity.HasOne(e => e.PullRequest)
                 .WithMany(p => p.Reviews)
-                .HasForeignKey(e => e.PullRequestId)
+                .HasForeignKey(e => new { e.PullRequestId, e.RepositoryKey })
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

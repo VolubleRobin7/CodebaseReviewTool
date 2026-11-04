@@ -1,8 +1,11 @@
+using CodebaseReviewTool.Core.Git;
+
 namespace CodebaseReviewTool.Core.DevOps;
 
 /// <summary>
 /// Azure DevOps REST calls, for any server from TFS 2017 (REST 3.0) up to Azure DevOps Services (7.1).
-/// Detects the server's API version once and identifies the authenticated user.
+/// Detects the server's API version once, identifies the authenticated user and reads pull requests. Every call is
+/// read-only.
 /// </summary>
 public interface IDevOpsClient
 {
@@ -18,6 +21,19 @@ public interface IDevOpsClient
     /// as a failed <see cref="DevOpsUserResult"/>.
     /// </summary>
     Task<DevOpsUserResult> GetCurrentUserAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists every active pull request in <paramref name="repository"/>, reading page after page until the server
+    /// returns a short page. Read-only. Never throws for HTTP, network or authentication failures; those come back as
+    /// a failed result naming the HTTP status and request path.
+    /// </summary>
+    Task<DevOpsListResult<DevOpsPullRequest>> ListActivePullRequestsAsync(ResolvedRepository repository, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads one pull request of <paramref name="repository"/> by id, whatever its status. Read-only. Never throws for
+    /// HTTP, network or authentication failures; those come back as a failed result.
+    /// </summary>
+    Task<DevOpsResult<DevOpsPullRequest>> GetPullRequestAsync(ResolvedRepository repository, int id, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Outcome of <see cref="IDevOpsClient.GetCurrentUserAsync"/>.</summary>
