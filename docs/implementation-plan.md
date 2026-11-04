@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 0 complete (scaffolding). Phases 1+ not started.
+Status: Phase 1 complete (configuration, repository resolution, database, Settings page). Phases 2+ not started.
 
 ---
 
@@ -106,7 +106,7 @@ references Blazor, ASP.NET Core or WinForms, so the target is plain `net10.0`.
 | `Git/` | `GitRunner`, `RepositoryResolver`, `WorktreeService`, `WorktreeInfo` | `GitRunner` runs `git <args>` in a directory via `IProcessRunner`. `RepositoryResolver` turns each configured `LocalPath` into a resolved repository (remote name, organisation, project, repository, key) by reading and parsing its remote URL at startup. `WorktreeService` does the review-specific work: fetch, add a detached worktree at a commit, merge-base, changed-file list, remove + prune, path naming under `WorktreeRoot`, and the Windows removal failure handling. |
 | `Claude/` | `ClaudeRunner`, `ClaudeResult`, `PromptRenderer`, `IssuesSchema` | `ClaudeRunner` builds the command line in §6.2, feeds the rendered prompt through stdin and parses Claude's result JSON. `PromptRenderer` substitutes the §6.1 placeholders. `IssuesSchema` holds the fixed schema text and the instruction appended to step 3. |
 | `DevOps/` | `IDevOpsClient`, `DevOpsClient`, REST DTOs, `PullRequestCache` | REST calls to Azure DevOps with PAT basic auth (list active PRs for a repo, get one PR, "who am I" for the Settings check). `PullRequestCache` merges polled results into the `PullRequest` table and flags PRs that have closed. |
-| `Reviews/` | `ReviewQueue`, `ReviewOrchestrator`, `IssuesParser`, `ReviewEvents`, `ReviewStatus`/`StepStatus` enums | `ReviewQueue` is a `Channel<int>` of review ids. `ReviewOrchestrator` runs one review: status machine in §2, worktree creation, steps 1–3 in order, one `ReviewStepRun` row per step, issues parsing for step 3, stop on first failure, re-run from a given step reusing the worktree. `ReviewEvents` is an in-process pub/sub (review or step changed) that the UI and the tray subscribe to. |
+| `Reviews/` | `ReviewQueue`, `ReviewOrchestrator`, `IssuesParser`, `ReviewEvents` | `ReviewQueue` is a `Channel<int>` of review ids. `ReviewOrchestrator` runs one review: status machine in §2, worktree creation, the flow steps in ascending order, one `ReviewStepRun` row per step, issues parsing for the last step, stop on first failure, re-run from a given step reusing the worktree. `ReviewEvents` is an in-process pub/sub (review or step changed) that the UI and the tray subscribe to. |
 | `Reporting/` | `ReportBuilder` | Renders a completed review to a standalone HTML string (summary, diagram inlined as an iframe `srcdoc`, issues table) for the Download button. |
 | `Hosting/` | `DevOpsPollService`, `ReviewQueueService`, `WorktreeCleanupService` | The three `BackgroundService` classes. They live here, not in Host, because they are behaviour; Host only registers them. |
 | root | `ServiceCollectionExtensions.AddReviewCore(IConfiguration)` | One call that registers options, the DbContext factory, HttpClient for DevOps, every service above and the three hosted services. |
@@ -132,8 +132,13 @@ and the only one with an entry point.
 | `appsettings.json`, `appsettings.Development.json` | | Committed configuration with placeholder values only. Machine-specific values (PAT, organisation URL, worktree root, repositories) live in user-secrets; the id is set in the csproj. |
 | `Properties/launchSettings.json` | | Single `http` profile on port 5210, Development environment. No https profile: the app is loopback-only. |
 
-Package references: the Core project, `Microsoft.EntityFrameworkCore.Design` (for the
-`dotnet ef` migrations tooling), WinForms via `<UseWindowsForms>true</UseWindowsForms>`.
+Package references: the Core project, WinForms via `<UseWindowsForms>true</UseWindowsForms>`.
+The `dotnet ef` tooling targets Core on its own (Core holds `Microsoft.EntityFrameworkCore.Design`
+and a design-time context factory), so adding a migration never starts the Host:
+
+```
+dotnet ef migrations add <Name> --project src/CodebaseReviewTool.Core --startup-project src/CodebaseReviewTool.Core --output-dir Data/Migrations
+```
 
 ---
 
@@ -214,19 +219,25 @@ The stable id used in worktree paths and the database (`RepositoryKey`) is a slu
 
 | Entity | Purpose | Key fields |
 |---|---|---|
-| `FlowStep` | The global flow. Exactly three rows. | `Step` (int PK, the sequence: 1 = Summary, 2 = Diagram, 3 = Issues), `PromptText`, `Model?`, `TimeoutMinutes?`, `UpdatedAt` |
+| `FlowStep` | The global flow. Seeded with three rows; the schema allows any number. | `Step` (int PK, the sequence, starting at 0: 0 = Summary, 1 = Diagram, 2 = Issues), `PromptText`, `Model?`, `TimeoutMinutes?`, `UpdatedAt` |
 | `PullRequest` | Cache of DevOps PR metadata. | `Id` (DevOps PR id), `RepositoryKey`, `Title`, `Description`, `AuthorName`, `SourceBranch`, `TargetBranch`, `SourceCommit`, `Status`, `CreatedAt`, `Url`, `LastSeenAt`, `IsOpen` |
 | `Review` | One review run of one PR. | `Id`, `PullRequestId`, `RepositoryKey`, `SourceCommit`, `MergeBaseCommit`, `Status`, `WorktreePath`, `WorktreeRemovedAt?`, `QueuedAt`, `StartedAt?`, `CompletedAt?`, `Error?` |
-| `ReviewStepRun` | One Claude run inside a review. | `Id`, `ReviewId`, `Step` (1–3, matches `FlowStep.Step`), `Status`, `RenderedPrompt`, `CommandLine`, `RawOutputJson`, `ResultText`, `StdErr`, `ExitCode?`, `ClaudeSessionId?`, `DurationMs?`, `CostUsd?`, `StartedAt?`, `CompletedAt?`, `Error?` |
+| `ReviewStepRun` | One Claude run inside a review. | `Id`, `ReviewId`, `Step` (matches `FlowStep.Step`), `RenderedPrompt`, `CommandLine`, `RawOutputJson`, `ResultText`, `StdErr`, `ExitCode?`, `ClaudeSessionId?`, `DurationMs?`, `CostUsd?`, `StartedAt?`, `CompletedAt?`, `Error?` |
 | `Issue` | Parsed rows from the Issues step. | `Id`, `ReviewId`, `Severity`, `Category`, `File`, `Line?`, `Title`, `Description`, `Suggestion?` |
 
 Repositories are **not** in the database; they come from appsettings and are referenced
-by `RepositoryKey`. The Flow is seeded with three empty steps (1, 2, 3) on first run.
+by `RepositoryKey`. The Flow is seeded with three empty steps (0, 1, 2) on first run.
+Nothing in the schema limits the step count, so more steps or a customisable flow need
+no migration later.
 
 What a step's output means is decided by its position, not by a stored kind: the
-orchestrator treats step 1's result as the summary text, step 2's as the diagram HTML,
-and step 3's as the issues JSON (and only step 3 gets `--json-schema`). The UI labels
+orchestrator treats step 0's result as the summary text, step 1's as the diagram HTML,
+and step 2's as the issues JSON (and only step 2 gets `--json-schema`). The UI labels
 the three cards accordingly.
+
+Review and step-run state is **not stored**. `Review.State` and `ReviewStepRun.State`
+are unmapped properties derived from the timestamps, errors and step runs; `Review.CurrentStep`
+gives the step in flight.
 
 ---
 
@@ -408,7 +419,7 @@ be removed from the UI.
 
 Goal: a review runs end to end and stores the three outputs.
 
-- Flow page: three fixed cards (1 Summary, 2 Diagram, 3 Issues). Each has one prompt
+- Flow page: three fixed cards (0 Summary, 1 Diagram, 2 Issues). Each has one prompt
   text box (start it with `/skill-name …` to run a skill), optional model and timeout,
   a placeholder reference panel, and a "Preview rendered prompt" against a chosen PR.
   The Issues card shows the fixed schema instruction that will be appended (read-only).
