@@ -1,0 +1,233 @@
+@using System.ComponentModel
+@using System.Diagnostics
+@using CodebaseReviewTool.Core.Configuration
+@using CodebaseReviewTool.Core.Data
+@using CodebaseReviewTool.Core.Data.Entities
+@using CodebaseReviewTool.Core.Data.Enums
+@using CodebaseReviewTool.Core.Git
+@using CodebaseReviewTool.Core.Reviews
+@using CodebaseReviewTool.Host.Components.Shared
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.Options
+
+@rendermode InteractiveServer
+
+@implements IDisposable
+
+@inject IDbContextFactory<ReviewDbContext> DbContextFactory
+@inject ILogger<Worktrees> Logger
+@inject IOptions<GitOptions> GitOptions
+@inject IRepositoryRegistry RepositoryRegistry
+@inject ReviewEvents ReviewEvents
+@inject WorktreeService WorktreeService
+
+@page "/worktrees"
+
+<PageTitle>Worktrees - Codebase Review Tool</PageTitle>
+
+<div class="page-head">
+    <div class="page-head-text">
+        <h1 class="page-title">Worktrees</h1>
+        <p class="page-lede">Each review checks the pull request out in its own worktree under <span class="mono">@GitOptions.Value.WorktreeRoot</span>. Worktrees are removed automatically @CleanupText after a review finishes.</p>
+    </div>
+</div>
+
+<section class="section">
+    @if (_items.Count == 0)
+    {
+        <p class="empty">No worktrees.</p>
+    }
+    else
+    {
+        <div class="rows">
+            <div class="row-head worktree-row">
+                <span>Pull request</span>
+                <span>State</span>
+                <span>Age</span>
+                <span>Path</span>
+                <span />
+            </div>
+            @foreach (var item in _items)
+            {
+                <div class="row worktree-row">
+                    <span>
+                        #@item.Review.PullRequestId @item.Title
+                        <span class="row-detail">@item.RepositoryName</span>
+                    </span>
+                    <span class="@(item.State == ReviewState.Failed ? "worktree-failed" : null)">@StateText(item.State)</span>
+                    <span>@RelativeTime.Ago(item.Review.QueuedAt)</span>
+                    <span>
+                        <span class="mono worktree-path">@item.Review.WorktreePath</span>
+                        @if (!item.ExistsOnDisk)
+                        {
+                            <span class="worktree-missing">missing on disk</span>
+                        }
+                    </span>
+                    <span class="worktree-actions">
+                        <button @onclick="() => OpenFolder(item)"
+                                class="btn btn-link"
+                                disabled="@(!item.ExistsOnDisk)"
+                                type="button">
+
+                            Open folder
+
+                        </button>
+
+                        <button @onclick="() => RemoveAsync(item)"
+                                class="btn btn-secondary"
+                                disabled="@(item.IsActive || _removing.Contains(item.Review.Id))"
+                                title="@(item.IsActive ? "Finish or wait for the review first" : null)"
+                                type="button">
+
+                            @RemoveText(item)
+
+                        </button>
+                    </span>
+                    @if (_errors.GetValueOrDefault(item.Review.Id) is { } error)
+                    {
+                        <span class="worktree-error">@error</span>
+                    }
+                </div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private readonly Dictionary<int, string> _errors = [];
+    private readonly HashSet<int> _failedRemovals = [];
+    private readonly HashSet<int> _removing = [];
+
+    private List<WorktreeItem> _items = [];
+
+    private string CleanupText => GitOptions.Value.AutoCleanupAfterDays == 1 ? "1 day" : $"{GitOptions.Value.AutoCleanupAfterDays} days";
+
+    protected override async Task OnInitializedAsync()
+    {
+        ReviewEvents.ReviewChanged += OnReviewChanged;
+        await LoadAsync();
+    }
+
+    public void Dispose() => ReviewEvents.ReviewChanged -= OnReviewChanged;
+
+    // Event handlers run on the publisher's thread; InvokeAsync moves the work onto this circuit's dispatcher.
+    private void OnReviewChanged(ReviewChangedEventArgs args) => _ = InvokeAsync(ReloadAsync);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Reloading the worktree list failed");
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbContextFactory.CreateDbContextAsync();
+
+        // Step runs are loaded because the review's state is derived from them.
+        var reviews = await db.Reviews
+            .AsNoTracking()
+            .Include(r => r.PullRequest)
+            .Include(r => r.StepRuns)
+            .Where(r => r.WorktreePath != "" && r.WorktreeRemovedAt == null)
+            .OrderByDescending(r => r.QueuedAt)
+            .ThenByDescending(r => r.Id)
+            .ToListAsync();
+
+        _items = [.. reviews.Select(r => new WorktreeItem(
+            r,
+            r.PullRequest?.Title ?? string.Empty,
+            RepositoryRegistry.Find(r.RepositoryKey)?.DisplayName ?? r.RepositoryKey,
+            Directory.Exists(r.WorktreePath)))];
+    }
+
+    private void OpenFolder(WorktreeItem item)
+    {
+        _errors.Remove(item.Review.Id);
+        try
+        {
+            var startInfo = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
+            startInfo.ArgumentList.Add(item.Review.WorktreePath);
+            using var process = Process.Start(startInfo);
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            _errors[item.Review.Id] = $"Could not open the folder: {ex.Message}";
+        }
+    }
+
+    private async Task RemoveAsync(WorktreeItem item)
+    {
+        var review = item.Review;
+        if (item.IsActive || !_removing.Add(review.Id))
+        {
+            return;
+        }
+
+        _errors.Remove(review.Id);
+        try
+        {
+            var repository = RepositoryRegistry.Find(review.RepositoryKey);
+            if (repository is null)
+            {
+                _errors[review.Id] = $"The repository '{review.RepositoryKey}' is no longer configured, so its clone cannot remove the worktree.";
+                _failedRemovals.Add(review.Id);
+                return;
+            }
+
+            var result = await WorktreeService.RemoveAsync(repository, review.WorktreePath, CancellationToken.None);
+            if (!result.Succeeded)
+            {
+                _errors[review.Id] = result.Detail;
+                _failedRemovals.Add(review.Id);
+                return;
+            }
+
+            await using (var db = await DbContextFactory.CreateDbContextAsync())
+            {
+                if (await db.Reviews.FindAsync(review.Id) is { } stored)
+                {
+                    stored.WorktreeRemovedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                }
+            }
+
+            // ReviewChanged reloads this page (and any other open copy), which drops the row.
+            ReviewEvents.PublishReviewChanged(new ReviewChangedEventArgs(review.Id, review.PullRequestId, review.RepositoryKey));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Removing the worktree of review {ReviewId} failed", review.Id);
+            _errors[review.Id] = $"{ex.GetType().Name}: {ex.Message}";
+            _failedRemovals.Add(review.Id);
+        }
+        finally
+        {
+            _removing.Remove(review.Id);
+        }
+    }
+
+    private string RemoveText(WorktreeItem item) => _removing.Contains(item.Review.Id)
+        ? "Removing…"
+        : _failedRemovals.Contains(item.Review.Id) ? "Retry" : "Remove";
+
+    private static string StateText(ReviewState state) => state switch
+    {
+        ReviewState.PreparingWorktree => "Preparing worktree",
+        _ => state.ToString(),
+    };
+
+    /// <summary>One review whose worktree has not been removed.</summary>
+    private sealed record WorktreeItem(Review Review, string Title, string RepositoryName, bool ExistsOnDisk)
+    {
+        public ReviewState State { get; } = Review.State;
+
+        public bool IsActive => State is ReviewState.Queued or ReviewState.PreparingWorktree or ReviewState.Running;
+    }
+}

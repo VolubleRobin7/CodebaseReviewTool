@@ -20,4 +20,8 @@ public sealed class GitOptions
     public int AutoCleanupAfterDays { get; set; } = 14;
 
     public bool FetchBeforeReview { get; set; } = true;
+
+    /// <summary>Timeout for each git command a review runs (fetch, worktree add and remove, merge-base, diff).</summary>
+    [Range(1, 1440, ErrorMessage = "Git:CommandTimeoutMinutes must be between {1} and {2}.")]
+    public int CommandTimeoutMinutes { get; set; } = 10;
 }

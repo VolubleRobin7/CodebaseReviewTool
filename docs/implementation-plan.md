@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 2 complete (DevOps pull requests, poller, cache, pull request list). Phases 3+ not started.
+Status: Phase 3 complete (worktrees, queue consumer, cleanup, Worktrees page). Phases 4+ not started.
 
 ---
 
@@ -170,7 +170,8 @@ dotnet ef migrations add <Name> --project src/CodebaseReviewTool.Core --startup-
     "ExecutablePath": "git",                                      // resolved via PATH if bare
     "WorktreeRoot": "C:\\Repos\\_review-worktrees",
     "AutoCleanupAfterDays": 14,
-    "FetchBeforeReview": true
+    "FetchBeforeReview": true,
+    "CommandTimeoutMinutes": 10                                   // fetch of a large clone can be slow
   },
 
   "DevOps": {
@@ -410,8 +411,10 @@ Goal: a review gets its own worktree at the PR's source commit.
   `fetch <remote>`, `worktree add --detach <root>/<repoKey>/pr-<id>-r<reviewId> <sourceCommit>`,
   `merge-base <remote>/<target> <sourceCommit>`, `diff --name-status` for
   `{{CHANGED_FILES}}`, `worktree remove --force` + `worktree prune`.
-- Windows failure handling on removal: locked files and long paths; the error is kept on
-  the `Review` and the UI offers Retry. (The team's `close-worktree` skill documents the
+- Windows failure handling on removal: locked files and long paths (a worktree left locked
+  by a crash needs `--force --force` and an unlock before prune); the error is shown under
+  the row on the Worktrees page with Retry, not stored on the `Review`, since writing its
+  error field would turn a completed review into a failed one. (The team's `close-worktree` skill documents the
   same failure modes; reuse its approach, not its code.)
 - `WorktreeCleanupService` removes worktrees older than `AutoCleanupAfterDays` for
   Completed/Failed reviews.

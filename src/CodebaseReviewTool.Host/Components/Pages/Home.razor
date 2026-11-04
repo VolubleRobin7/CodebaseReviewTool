@@ -110,7 +110,7 @@
     private string PollText => PollStatus switch
     {
         { IsEnabled: false } => "DevOps polling is disabled: no PAT is set and Windows authentication is off.",
-        { LastSuccessfulPollUtc: { } last } => $"Updated {Ago(last)}",
+        { LastSuccessfulPollUtc: { } last } => $"Updated {RelativeTime.Ago(last)}",
         { IsPolling: true } => "Fetching pull requests…",
         _ => "Waiting for the first poll.",
     };
@@ -232,18 +232,4 @@
             _starting.Remove(item.Key);
         }
     }
-
-    private static string Ago(DateTime utc)
-    {
-        var elapsed = DateTime.UtcNow - utc;
-        return elapsed switch
-        {
-            { TotalMinutes: < 1 } => "just now",
-            { TotalHours: < 1 } => Plural((int)elapsed.TotalMinutes, "minute") + " ago",
-            { TotalDays: < 1 } => Plural((int)elapsed.TotalHours, "hour") + " ago",
-            _ => Plural((int)elapsed.TotalDays, "day") + " ago",
-        };
-    }
-
-    private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 }

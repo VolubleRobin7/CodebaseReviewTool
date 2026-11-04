@@ -61,7 +61,13 @@ dotnet run --project src/CodebaseReviewTool.Host
 
 The home page lists the open pull requests of the configured repositories, read from DevOps
 at startup and then every `DevOps:PollIntervalSeconds`. "Start review" queues a review of a
-pull request; reviews do not run yet.
+pull request.
+
+Each review gets its own git worktree, detached at the pull request's source commit, under
+`Git:WorktreeRoot` (`<root>\<repository key>\pr-<id>-r<review id>`); "Start review" fetches
+the clone and creates it. Worktrees are removed from the Worktrees page (linked from
+Configuration) or automatically `Git:AutoCleanupAfterDays` days after a review finishes.
+Reviews do not run the agent steps yet, so a review stays "Reviewing…" once its worktree is ready.
 
 ## Design
 

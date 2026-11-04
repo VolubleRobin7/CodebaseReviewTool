@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RepositoryResolver>();
         services.AddSingleton<RepositoryRegistry>();
         services.AddSingleton<IRepositoryRegistry>(sp => sp.GetRequiredService<RepositoryRegistry>());
+        services.AddSingleton<WorktreeService>();
 
         services.AddDbContextFactory<ReviewDbContext>((sp, options) =>
         {
@@ -55,10 +56,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ReviewService>();
 
         // Hosted services start in registration order. The initializer runs after options validation and before
-        // Kestrel listens (resolves repositories, migrates and seeds), so the poller registered after it always
-        // finds the registry filled and the schema current.
+        // Kestrel listens (resolves repositories, migrates and seeds), so the services registered after it always
+        // find the registry filled and the schema current. The queue recovers the previous run's reviews in its own
+        // start, also before Kestrel listens.
         services.AddHostedService<StartupInitializer>();
         services.AddHostedService<DevOpsPollService>();
+        services.AddHostedService<ReviewQueueService>();
+        services.AddHostedService<WorktreeCleanupService>();
 
         return services;
     }
