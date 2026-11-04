@@ -1,0 +1,314 @@
+@using CodebaseReviewTool.Core.Configuration
+@using CodebaseReviewTool.Core.DevOps
+@using CodebaseReviewTool.Core.Git
+@using CodebaseReviewTool.Core.Processes
+@using Microsoft.Extensions.Options
+
+@rendermode InteractiveServer
+
+@inject IOptions<ClaudeOptions> ClaudeOptions
+@inject IOptions<DatabaseOptions> DatabaseOptions
+@inject IDevOpsClient DevOpsClient
+@inject IOptions<DevOpsOptions> DevOpsOptions
+@inject IOptions<GitOptions> GitOptions
+@inject GitRunner GitRunner
+@inject IProcessRunner ProcessRunner
+@inject IRepositoryRegistry RepositoryRegistry
+@inject IOptions<ReviewOptions> ReviewOptions
+@inject IOptions<TrayOptions> TrayOptions
+
+@page "/configuration"
+
+<PageTitle>Configuration - Codebase Review Tool</PageTitle>
+
+<div class="page-head">
+    <div class="page-head-text">
+        <h1 class="page-title">Review configuration</h1>
+        <p class="page-lede">The flow steps run in order for every review and each produces one section of the report. The environment below is read from appsettings.json and user-secrets; edit those files and restart to change it.</p>
+    </div>
+</div>
+
+<section class="section">
+    <div class="section-head">
+        <h2 class="section-title">Flow steps</h2>
+    </div>
+    <p class="empty">The step editor is not available yet.</p>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <h2 class="section-title">Checks</h2>
+
+        <button @onclick="RunAllChecksAsync"
+                class="btn btn-secondary"
+                disabled="@AnyRunning"
+                type="button">
+
+            Run all checks
+
+        </button>
+    </div>
+    <div class="rows">
+        @foreach (var check in _checks)
+        {
+            <div class="row check-row">
+                <span>@check.Name</span>
+                <span>
+                    @switch (check.State)
+                    {
+                        case CheckState.Running:
+                            <span class="check-state check-running">Running…</span>
+                            break;
+
+                        case CheckState.Passed:
+                            <span class="check-state check-passed">Passed</span>
+                            break;
+
+                        case CheckState.Failed:
+                            <span class="check-state check-failed">Failed</span>
+                            break;
+
+                        default:
+                            <span class="faint">Not run</span>
+                            break;
+                    }
+
+                    @if (!string.IsNullOrEmpty(check.Detail))
+                    {
+                        <span class="row-detail">@check.Detail</span>
+                    }
+                </span>
+                <span class="check-action">
+                    <button @onclick="() => RunCheckAsync(check)"
+                            class="btn btn-link"
+                            disabled="@check.IsRunning"
+                            type="button">
+
+                        Check
+
+                    </button>
+                </span>
+            </div>
+        }
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <h2 class="section-title">Repositories</h2>
+        <span class="count">@RepositoryRegistry.Repositories.Count</span>
+    </div>
+    <div class="rows">
+        <div class="row-head repo-row">
+            <span>Name</span>
+            <span>Local path</span>
+            <span>Remote</span>
+            <span>Organisation / project / repository</span>
+        </div>
+        @foreach (var repository in RepositoryRegistry.Repositories)
+        {
+            <div class="row repo-row">
+                <span>
+                    @repository.DisplayName
+                    <span class="row-detail">@repository.Key</span>
+                </span>
+                <span class="mono">@repository.LocalPath</span>
+                <span>@repository.RemoteName</span>
+                <span>@repository.Organization / @repository.Project / @repository.Repository</span>
+            </div>
+        }
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <h2 class="section-title">Environment</h2>
+    </div>
+    <dl class="kv">
+        <dt>Database</dt>
+        <dd class="mono">@DatabaseOptions.Value.Path</dd>
+
+        <dt>Claude executable</dt>
+        <dd class="mono">@ClaudeOptions.Value.ExecutablePath</dd>
+        <dt>Claude default model</dt>
+        <dd>@(ClaudeOptions.Value.DefaultModel ?? "CLI default")</dd>
+        <dt>Claude timeout</dt>
+        <dd>@ClaudeOptions.Value.TimeoutMinutes minutes</dd>
+        <dt>Claude max turns</dt>
+        <dd>@ClaudeOptions.Value.MaxTurns</dd>
+        <dt>Claude allowed tools</dt>
+        <dd class="mono">@string.Join("  ", ClaudeOptions.Value.AllowedTools)</dd>
+
+        <dt>Git executable</dt>
+        <dd class="mono">@GitOptions.Value.ExecutablePath</dd>
+        <dt>Worktree root</dt>
+        <dd class="mono">@GitOptions.Value.WorktreeRoot</dd>
+        <dt>Worktree auto-cleanup</dt>
+        <dd>after @GitOptions.Value.AutoCleanupAfterDays days</dd>
+        <dt>Fetch before review</dt>
+        <dd>@YesNo(GitOptions.Value.FetchBeforeReview)</dd>
+
+        <dt>DevOps organisation URL</dt>
+        <dd class="mono">@DevOpsOptions.Value.OrganizationUrl</dd>
+        <dt>DevOps poll interval</dt>
+        <dd>@DevOpsOptions.Value.PollIntervalSeconds seconds</dd>
+        <dt>DevOps auth mode</dt>
+        <dd>@DevOpsOptions.Value.AuthMode</dd>
+        <dt>DevOps PAT</dt>
+        <dd>@PatDescription</dd>
+        <dt>DevOps API version</dt>
+        <dd>@ApiVersionDescription</dd>
+
+        <dt>Max concurrent reviews</dt>
+        <dd>@ReviewOptions.Value.MaxConcurrent</dd>
+
+        <dt>Tray enabled</dt>
+        <dd>@YesNo(TrayOptions.Value.Enabled)</dd>
+        <dt>Open browser on start</dt>
+        <dd>@YesNo(TrayOptions.Value.OpenBrowserOnStart)</dd>
+    </dl>
+</section>
+
+@code {
+    private static readonly TimeSpan _checkTimeout = TimeSpan.FromSeconds(60);
+
+    private readonly List<Check> _checks = [];
+
+    private bool AnyRunning => _checks.Any(c => c.IsRunning);
+
+    private string PatDescription => string.IsNullOrEmpty(DevOpsOptions.Value.Pat)
+        ? "not set"
+        : $"set ({DevOpsOptions.Value.Pat.Length} characters)" + (DevOpsOptions.Value.UseDefaultCredentials ? ", not used (Windows auth)" : string.Empty);
+
+    // Filled in by the DevOps check, which probes the version before calling who-am-I.
+    private DevOpsApiVersionResult? _apiVersion;
+
+    private string ApiVersionDescription => _apiVersion switch
+    {
+        { Succeeded: true } v => $"{v.Version} ({(v.IsDetected ? "detected" : "configured")})",
+        { Succeeded: false } => "unknown (DevOps check failed)",
+        null when !string.IsNullOrWhiteSpace(DevOpsOptions.Value.ApiVersion) => $"{DevOpsOptions.Value.ApiVersion} (configured)",
+        null => "auto-detect (run the DevOps check)",
+    };
+
+    protected override void OnInitialized()
+    {
+        _checks.Add(new Check("Claude", CheckClaudeAsync));
+        _checks.Add(new Check("git", CheckGitAsync));
+        _checks.Add(new Check("DevOps", CheckDevOpsAsync));
+        foreach (var repository in RepositoryRegistry.Repositories)
+        {
+            _checks.Add(new Check($"Repository: {repository.DisplayName}", () => CheckRepositoryAsync(repository)));
+        }
+    }
+
+    private async Task RunAllChecksAsync()
+    {
+        // Run concurrently; each check updates its own row as it finishes.
+        await Task.WhenAll(_checks.Select(RunCheckAsync));
+    }
+
+    private async Task RunCheckAsync(Check check)
+    {
+        if (check.IsRunning)
+        {
+            return;
+        }
+
+        check.State = CheckState.Running;
+        check.Detail = null;
+        StateHasChanged();
+
+        try
+        {
+            var (passed, detail) = await check.Run();
+            check.State = passed ? CheckState.Passed : CheckState.Failed;
+            check.Detail = detail;
+        }
+        catch (Exception ex)
+        {
+            check.State = CheckState.Failed;
+            check.Detail = $"{ex.GetType().Name}: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task<(bool Passed, string Detail)> CheckClaudeAsync()
+    {
+        var request = new ProcessRequest(ClaudeOptions.Value.ExecutablePath, ["--version"], Timeout: _checkTimeout);
+        var result = await ProcessRunner.RunAsync(request);
+        return Describe(result);
+    }
+
+    private async Task<(bool Passed, string Detail)> CheckGitAsync()
+    {
+        var result = await GitRunner.RunAsync(null, ["--version"], _checkTimeout);
+        return Describe(result);
+    }
+
+    private async Task<(bool Passed, string Detail)> CheckDevOpsAsync()
+    {
+        _apiVersion = await DevOpsClient.GetApiVersionAsync();
+        if (!_apiVersion.Succeeded)
+        {
+            return (false, _apiVersion.Error ?? "Unknown error");
+        }
+
+        var result = await DevOpsClient.GetCurrentUserAsync();
+        return result.Succeeded
+            ? (true, $"Authenticated as {result.DisplayName} ({DevOpsOptions.Value.AuthMode}); API version {ApiVersionDescription}")
+            : (false, result.Error ?? "Unknown error");
+    }
+
+    private async Task<(bool Passed, string Detail)> CheckRepositoryAsync(ResolvedRepository repository)
+    {
+        var result = await GitRunner.RunAsync(repository.LocalPath, ["rev-parse", "--is-inside-work-tree"], _checkTimeout);
+        if (result.Succeeded && result.StandardOutput.Trim() == "true")
+        {
+            return (true, $"Git work tree; remote {repository.RemoteName}: {repository.RemoteUrl}");
+        }
+
+        var (_, detail) = Describe(result);
+        return (false, $"{repository.LocalPath} is not a git work tree. {detail}");
+    }
+
+    private static (bool Passed, string Detail) Describe(ProcessResult result)
+    {
+        if (result.TimedOut)
+        {
+            return (false, $"Timed out after {result.Duration.TotalSeconds:0} s");
+        }
+
+        if (result.ExitCode != 0)
+        {
+            var error = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
+            return (false, $"Exit code {result.ExitCode}: {error.Trim()}");
+        }
+
+        return (true, result.StandardOutput.Trim());
+    }
+
+    private static string YesNo(bool value) => value ? "Yes" : "No";
+
+    private enum CheckState
+    {
+        NotRun,
+        Running,
+        Passed,
+        Failed,
+    }
+
+    private sealed class Check(string name, Func<Task<(bool Passed, string Detail)>> run)
+    {
+        public string Name { get; } = name;
+
+        public Func<Task<(bool Passed, string Detail)>> Run { get; } = run;
+
+        public CheckState State { get; set; }
+
+        public string? Detail { get; set; }
+
+        public bool IsRunning => State == CheckState.Running;
+    }
+}

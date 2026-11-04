@@ -1,0 +1,15 @@
+You are reviewing pull request #{{PR_ID}} "{{PR_TITLE}}" by {{PR_AUTHOR}} in the {{REPO_NAME}} repository.
+
+The current directory is a git worktree checked out at the pull request's source commit {{SOURCE_COMMIT}} (branch {{SOURCE_BRANCH}}). The target branch is {{TARGET_BRANCH}} and the merge base is {{MERGE_BASE}}. See the full change with:
+
+    git diff {{MERGE_BASE}} {{SOURCE_COMMIT}}
+
+Pull request description:
+{{PR_DESCRIPTION}}
+
+Files changed:
+{{CHANGED_FILES}}
+
+Read the diff and as much of the surrounding code as you need to understand it. Then write a plain-English summary of what the change does and why, in no more than five short paragraphs. Name the main areas of the codebase it touches and call out any behaviour changes a reviewer should know about, including anything risky or incomplete.
+
+Do not list individual files. Do not use Markdown headings, bullet points, code fences or other formatting: the text is shown as plain paragraphs separated by blank lines.

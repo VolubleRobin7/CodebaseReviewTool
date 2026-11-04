@@ -2,7 +2,7 @@ using CodebaseReviewTool.Core.Data.Enums;
 
 namespace CodebaseReviewTool.Core.Data.Entities;
 
-/// <summary>One Claude run inside a review. All times are UTC.</summary>
+/// <summary>One agent run inside a review. All times are UTC.</summary>
 public class ReviewStepRun
 {
     public int Id { get; set; }
@@ -35,7 +35,7 @@ public class ReviewStepRun
 
     public int? ExitCode { get; set; }
 
-    public string? ClaudeSessionId { get; set; }
+    public string? AgentSessionId { get; set; }
 
     public long? DurationMs { get; set; }
 

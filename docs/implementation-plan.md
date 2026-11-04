@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 1 complete (configuration, repository resolution, database, Settings page). Phases 2+ not started.
+Status: Phase 1 complete (configuration, repository resolution, database with seeded default prompts, Configuration page with checks). Phases 2+ not started.
 
 ---
 
@@ -21,7 +21,7 @@ implementation sessions unless Mitch changes them.
 | Runtime | .NET 10 (SDK 10.0.403 is installed). `net10.0-windows` for the host project because of the tray icon. |
 | Claude | Local Claude Code CLI (2.1.305 at `%USERPROFILE%\.local\bin\claude.exe`, **not** on the PowerShell PATH). Path comes from appsettings. Headless `claude -p` runs. |
 | Steps | Exactly three, fixed order: Summary → Diagram → Issues. Each is an **independent** `claude -p` run that sees only PR metadata and the worktree, never earlier step output. |
-| Step source | A step is prompt text, stored as a single string. If that text starts with `/skill-name …`, Claude runs the skill, exactly as it does interactively (user-level skills/plugins plus the reviewed repo's `.claude` folder). The tool does not distinguish the two; it only renders placeholders and passes the text through. The tool ships no prompts of its own except the issues JSON schema instruction. |
+| Step source | A step is prompt text, stored as a single string. If that text starts with `/skill-name …`, Claude runs the skill, exactly as it does interactively (user-level skills/plugins plus the reviewed repo's `.claude` folder). The tool does not distinguish the two; it only renders placeholders and passes the text through. The tool ships one default prompt per step (embedded resources in Core, §5) used to seed the flow and restored by "Reset to default"; the issues JSON schema instruction is appended separately. |
 | Permissions | Read-only tool allowlist passed via `--allowedTools` (Read, Glob, Grep, read-only git). Configurable in appsettings, not per step. |
 | Flow | One global flow (three step definitions). Stored in the database, edited in the UI. |
 | Triggering | Manual: the UI lists open PRs from DevOps and the user clicks Review. A background poll keeps the list fresh and never starts a review. |
@@ -52,7 +52,7 @@ implementation sessions unless Mitch changes them.
 |   - WorktreeCleanupService removes worktrees older than the configured age                      |
 |                                                                                                 |
 |  Core services (CodebaseReviewTool.Core)                                                        |
-|   DevOpsClient -> PullRequestCache -> ReviewOrchestrator -> WorktreeService -> ClaudeRunner      |
+|   DevOpsClient -> PullRequestCache -> ReviewOrchestrator -> WorktreeService -> IAgentRunner      |
 |                                            |                                                    |
 |                                            +-- PromptRenderer, IssuesParser, ReportBuilder      |
 |                                                                                                 |
@@ -104,7 +104,8 @@ references Blazor, ASP.NET Core or WinForms, so the target is plain `net10.0`.
 | `Data/` | `ReviewDbContext`, entity classes (§5), EF migrations, `ReviewDbContextFactory` | SQLite storage. Blazor Server circuits and background services both need their own short-lived contexts, so consumers use `IDbContextFactory<ReviewDbContext>` rather than a scoped context. |
 | `Processes/` | `IProcessRunner`, `ProcessRunner`, `ProcessResult` | The only place an external process is started. Handles working directory, stdin writing, stdout/stderr capture, timeout with process-tree kill, and environment sanitisation (dropping `CLAUDECODE`). Git and Claude both go through it. |
 | `Git/` | `GitRunner`, `RepositoryResolver`, `WorktreeService`, `WorktreeInfo` | `GitRunner` runs `git <args>` in a directory via `IProcessRunner`. `RepositoryResolver` turns each configured `LocalPath` into a resolved repository (remote name, organisation, project, repository, key) by reading and parsing its remote URL at startup. `WorktreeService` does the review-specific work: fetch, add a detached worktree at a commit, merge-base, changed-file list, remove + prune, path naming under `WorktreeRoot`, and the Windows removal failure handling. |
-| `Claude/` | `ClaudeRunner`, `ClaudeResult`, `PromptRenderer`, `IssuesSchema` | `ClaudeRunner` builds the command line in §6.2, feeds the rendered prompt through stdin and parses Claude's result JSON. `PromptRenderer` substitutes the §6.1 placeholders. `IssuesSchema` holds the fixed schema text and the instruction appended to step 3. |
+| `Prompts/` | `DefaultPrompts`, `PromptRenderer`, `IssuesSchema`, `Defaults/*.txt` | Agent-neutral prompt handling. `DefaultPrompts` reads the shipped prompt for each step from the embedded `Prompts/Defaults/<step>-*.txt` resources. `PromptRenderer` substitutes the §6.1 placeholders. `IssuesSchema` holds the fixed schema text and the instruction appended to the last step. Nothing here names a particular AI tool, and the shipped prompts avoid wording specific to one. |
+| `Agents/` | `IAgentRunner`, `AgentResult`, `ClaudeCodeRunner` | The boundary to whichever AI tool runs a step. `IAgentRunner` takes a rendered prompt, a working directory, an optional model, timeout and optional JSON schema and returns an `AgentResult` (text, structured output, session id, cost, raw output, error). `ClaudeCodeRunner` is the only implementation for now: it builds the command line in §6.2, feeds the prompt through stdin and parses the CLI's result JSON. Another tool means another implementation, selected in `AddReviewCore`. |
 | `DevOps/` | `IDevOpsClient`, `DevOpsClient`, REST DTOs, `PullRequestCache` | REST calls to Azure DevOps with PAT basic auth (list active PRs for a repo, get one PR, "who am I" for the Settings check). `PullRequestCache` merges polled results into the `PullRequest` table and flags PRs that have closed. |
 | `Reviews/` | `ReviewQueue`, `ReviewOrchestrator`, `IssuesParser`, `ReviewEvents` | `ReviewQueue` is a `Channel<int>` of review ids. `ReviewOrchestrator` runs one review: status machine in §2, worktree creation, the flow steps in ascending order, one `ReviewStepRun` row per step, issues parsing for the last step, stop on first failure, re-run from a given step reusing the worktree. `ReviewEvents` is an in-process pub/sub (review or step changed) that the UI and the tray subscribe to. |
 | `Reporting/` | `ReportBuilder` | Renders a completed review to a standalone HTML string (summary, diagram inlined as an iframe `srcdoc`, issues table) for the Download button. |
@@ -124,11 +125,11 @@ and the only one with an entry point.
 |---|---|---|
 | `Program.cs` | | Builds the `WebApplication`, calls `AddReviewCore`, maps Razor components and the API, applies pending migrations, then starts Kestrel on a background thread and runs the tray message loop on the main STA thread. With `Tray:Enabled=false` (or `--console`) it blocks on the web host instead, which is how it runs under `dotnet run` and Claude Code's preview. |
 | `Api/` | `HealthEndpoints.cs` (`MapHealthApi`) | Minimal API endpoint groups, one file per group. Only `/api/health` exists now; the growth path for the API is adding files here that call Core services. |
-| `Components/Layout/` | `MainLayout`, `NavMenu`, `ReconnectModal` (template default, kept as is) | Shell from the mockup. |
-| `Components/Pages/` | `PullRequests`, `Reviews`, `ReviewReport`, `Flow`, `Worktrees`, `Settings` | One page per screen. Pages inject Core services directly; there is no HTTP hop between UI and service because they share a process. Pages subscribe to `ReviewEvents` for live status and call `InvokeAsync(StateHasChanged)`. |
-| `Components/Shared/` | `IssuesTable`, `DiagramFrame`, `StepStatus`, `SeverityBadge`, `PlaceholderReference`, `RunDetails` | Reusable pieces of the report and flow pages. `DiagramFrame` owns the sandboxed iframe and the height `postMessage` handshake. |
+| `Components/Layout/` | `MainLayout`, `NavMenu`, `ReconnectModal` (template default, kept as is) | The mockup's header: brand, "Pull requests" nav link, theme toggle and the gear that opens Configuration. |
+| `Components/Pages/` | `Home` (`/`, the pull request list), `ReviewReport` (`/reviews/{id}`), `Configuration` (`/configuration`: flow steps, checks, repositories, environment), `Worktrees` (`/worktrees`, linked from Configuration) | One page per screen (§10). Pages inject Core services directly; there is no HTTP hop between UI and service because they share a process. Pages subscribe to `ReviewEvents` for live status and call `InvokeAsync(StateHasChanged)`. |
+| `Components/Shared/` | `IssuesTable`, `DiagramFrame`, `SeverityBadge`, `PlaceholderReference`, `RunDetails`, `StepEditor` | Reusable pieces of the report and configuration pages. `DiagramFrame` owns the sandboxed iframe and the height `postMessage` handshake. |
 | `Tray/` | `TrayApplicationContext`, `StartupShortcut`, `SingleInstance` | NotifyIcon with context menu, open-browser action, balloon notifications from `ReviewEvents`, the Startup-folder shortcut toggle, and the named mutex that makes a second launch just open the browser. |
-| `wwwroot/` | `app.css`, `diagram-frame.js` | Styling written from the mockup; the few lines of JS for iframe height and clipboard. |
+| `wwwroot/` | `app.css`, `theme.js`, `diagram-frame.js` | Design tokens and components from the mockup (§10); the theme script that applies the saved light/dark choice before paint; the few lines of JS for iframe height. System fonts only, so nothing loads from the internet and no font files ship. |
 | `appsettings.json`, `appsettings.Development.json` | | Committed configuration with placeholder values only. Machine-specific values (PAT, organisation URL, worktree root, repositories) live in user-secrets; the id is set in the csproj. |
 | `Properties/launchSettings.json` | | Single `http` profile on port 5210, Development environment. No https profile: the app is loopback-only. |
 
@@ -155,6 +156,7 @@ dotnet ef migrations add <Name> --project src/CodebaseReviewTool.Core --startup-
   "Claude": {
     "ExecutablePath": "%USERPROFILE%\\.local\\bin\\claude.exe",
     "DefaultModel": null,                                         // null = CLI default
+    "Models": ["opus", "sonnet", "haiku"],                        // choices offered per step on the Configuration page
     "TimeoutMinutes": 20,
     "MaxTurns": 50,
     "AllowedTools": [
@@ -222,11 +224,12 @@ The stable id used in worktree paths and the database (`RepositoryKey`) is a slu
 | `FlowStep` | The global flow. Seeded with three rows; the schema allows any number. | `Step` (int PK, the sequence, starting at 0: 0 = Summary, 1 = Diagram, 2 = Issues), `PromptText`, `Model?`, `TimeoutMinutes?`, `UpdatedAt` |
 | `PullRequest` | Cache of DevOps PR metadata. | `Id` (DevOps PR id), `RepositoryKey`, `Title`, `Description`, `AuthorName`, `SourceBranch`, `TargetBranch`, `SourceCommit`, `Status`, `CreatedAt`, `Url`, `LastSeenAt`, `IsOpen` |
 | `Review` | One review run of one PR. | `Id`, `PullRequestId`, `RepositoryKey`, `SourceCommit`, `MergeBaseCommit`, `Status`, `WorktreePath`, `WorktreeRemovedAt?`, `QueuedAt`, `StartedAt?`, `CompletedAt?`, `Error?` |
-| `ReviewStepRun` | One Claude run inside a review. | `Id`, `ReviewId`, `Step` (matches `FlowStep.Step`), `RenderedPrompt`, `CommandLine`, `RawOutputJson`, `ResultText`, `StdErr`, `ExitCode?`, `ClaudeSessionId?`, `DurationMs?`, `CostUsd?`, `StartedAt?`, `CompletedAt?`, `Error?` |
+| `ReviewStepRun` | One Claude run inside a review. | `Id`, `ReviewId`, `Step` (matches `FlowStep.Step`), `RenderedPrompt`, `CommandLine`, `RawOutputJson`, `ResultText`, `StdErr`, `ExitCode?`, `AgentSessionId?`, `DurationMs?`, `CostUsd?`, `StartedAt?`, `CompletedAt?`, `Error?` |
 | `Issue` | Parsed rows from the Issues step. | `Id`, `ReviewId`, `Severity`, `Category`, `File`, `Line?`, `Title`, `Description`, `Suggestion?` |
 
 Repositories are **not** in the database; they come from appsettings and are referenced
-by `RepositoryKey`. The Flow is seeded with three empty steps (0, 1, 2) on first run.
+by `RepositoryKey`. The Flow is seeded with three steps (0, 1, 2) on first run, each
+holding the shipped default prompt for that position.
 Nothing in the schema limits the step count, so more steps or a customisable flow need
 no migration later.
 
@@ -369,7 +372,8 @@ Goal: the app validates its configuration on start and owns a SQLite database.
   Development, and the tray-hosted exe runs as Production, so without this the built app
   would see none of the machine-specific config.
 - `ReviewDbContext`, entities (§5), initial migration, `Database.Migrate()` on startup,
-  seed of three empty `FlowStep` rows.
+  seed of one `FlowStep` row per shipped default prompt (`DefaultPrompts`, embedded
+  resources in Core), never overwriting rows that already exist.
 - Settings page: read-only view of effective configuration plus "Check" buttons that run
   `claude --version`, `git --version`, a DevOps "who am I" call, and verify each repo
   `LocalPath` is a git repository. Results shown inline; PAT never displayed.
@@ -385,9 +389,12 @@ Goal: see open PRs for the configured repos and queue a review.
   list active PRs per repo, get one PR. Typed DTOs mapped to `PullRequest`.
 - `DevOpsPollService` refreshes the cache every `PollIntervalSeconds`; PRs that
   disappear are marked `IsOpen = false`, not deleted (their reviews remain).
-- Pull Requests page: grouped or filtered by repo, columns from the mockup (id, title,
-  author, source -> target, age, last review status), a Refresh button, a Review button
-  that creates a `Review` in `Queued` state and raises a `ReviewEvents` notification.
+- Pull request list on the home page, laid out as the mockup's "Open pull requests"
+  screen (§10): a counts line, a "Reviewed" section (PRs with a review, running ones
+  included) above an "Open" section (never reviewed), each row showing number, title,
+  repo, author and source branch, with a "Start review" button that creates a `Review`
+  in `Queued` state and raises a `ReviewEvents` notification. No repo filter and no
+  manual refresh: the poll keeps the list current and the row count is small.
 - DevOps being unreachable logs a warning and keeps the last cache; it never crashes
   the poller.
 
@@ -408,7 +415,9 @@ Goal: a review gets its own worktree at the PR's source commit.
   same failure modes; reuse its approach, not its code.)
 - `WorktreeCleanupService` removes worktrees older than `AutoCleanupAfterDays` for
   Completed/Failed reviews.
-- Worktrees page: path, PR, age, Remove button, "Open folder" button.
+- Worktrees page (`/worktrees`, linked from the Configuration page rather than the
+  header, since the mockup's header has only Pull requests and the gear): path, PR, age,
+  Remove button, "Open folder" button.
 - `ReviewQueueService` now exists and takes a Queued review through PreparingWorktree
   and stops (no Claude yet).
 
@@ -419,11 +428,17 @@ be removed from the UI.
 
 Goal: a review runs end to end and stores the three outputs.
 
-- Flow page: three fixed cards (0 Summary, 1 Diagram, 2 Issues). Each has one prompt
-  text box (start it with `/skill-name …` to run a skill), optional model and timeout,
-  a placeholder reference panel, and a "Preview rendered prompt" against a chosen PR.
+- Flow steps on the Configuration page, replacing the placeholder: the mockup's numbered
+  rail with a card per step (0 Summary, 1 Diagram, 2 Issues). Each card has a title and
+  description, a model dropdown fed by `Claude:Models` (with "CLI default"), one prompt
+  text box (start it with `/skill-name …` to run a skill), optional timeout, an
+  "Edited" marker, a placeholder reference panel and a "Preview rendered prompt" against
+  a chosen PR. Page-level Save / Discard buttons in the page header as in the mockup.
   The Issues card shows the fixed schema instruction that will be appended (read-only).
-- `PromptRenderer` (placeholders §6.1) and `ClaudeRunner` (§6.2) over `ProcessRunner`.
+  Per-step "Reset to default" restores the shipped prompt and clears the model
+  override, as in the mockup; it is enabled only when the step differs from the default.
+- `PromptRenderer` (placeholders §6.1), the `IAgentRunner` boundary and its
+  `ClaudeCodeRunner` implementation (§6.2) over `ProcessRunner`.
 - `IssuesParser` -> `Issue` rows; tolerant of a stray code fence around the JSON.
 - `ReviewOrchestrator`: drives the status machine in §2, writes a `ReviewStepRun` per
   step, stops on first failure, supports "re-run from step X" which reuses the existing
@@ -438,17 +453,24 @@ with summary text, diagram HTML and a non-empty issues list in the database.
 
 Goal: the report is readable and the mockup is matched.
 
-- Reviews page: all reviews, newest first, live status via `ReviewEvents`, per-row
-  actions (open, re-run, remove worktree, delete review).
-- Report page (`/reviews/{id}`): header (PR title, link to DevOps, branches, commit,
-  timings, per-step status), Summary section (plain text, whitespace preserved),
-  Diagram section (sandboxed iframe §6.4), Issues section (table with severity badges,
-  sort by any column, filter by severity and category, counts strip), and a collapsible
-  "Run details" per step showing the rendered prompt, stderr and the raw JSON.
+- Pull request rows gain their post-review states from the mockup: "Reviewing…" with a
+  spinner while running; "N issues / N high" plus "View report" when complete; and,
+  beyond the mockup, "Review failed" with "Retry" on failure and a "Review again" link
+  beside "View report" so a PR can be re-reviewed after new pushes. No separate Reviews
+  page.
+- Report page (`/reviews/{id}`), laid out as the mockup's Report screen: a left aside
+  (repository, author, branch, reviewed time, severity counts, and a list of this PR's
+  earlier reviews linking to their reports), the PR number and title, a Summary section
+  (plain text paragraphs), an Architecture section (sandboxed iframe §6.4) and an Issues
+  section with severity filter pills (All and one per severity) over a Severity /
+  Description / Suggested fix grid, the file and line shown in mono under the
+  description. Beyond the mockup: a collapsible "Run details" per step showing the
+  rendered prompt, stderr and the raw JSON, and a link to the PR in DevOps.
 - Failed step shows its error and a Re-run button in place of the section.
 - "Download report" produces a standalone HTML file via `ReportBuilder` (same template,
   diagram inlined into the iframe `srcdoc`).
-- CSS written from the mockup in `docs/mockup/`; light and dark per the mockup.
+- Remaining CSS for the report and the pull request rows, on the tokens and components
+  already in `app.css` (§10).
 
 Done when: the pages match the mockup closely and a report for a real PR is usable
 without opening the database.
@@ -508,5 +530,26 @@ Candidates, ordered by value; pick after Phases 0–6 are in use.
 - Multiple flows, per-repo flows, per-step tool permissions.
 - Reading diffs or files from DevOps.
 - Authentication or remote access.
-- Migrating into the `ai-tools` repo (personal tool for now; if it is shared later it
-  goes under `tools/<name>/` there with an owner line, per the check-before-building SOP).
+
+## 10. Design (from the Claude Design mockup)
+
+The mockup is `docs/mockup/Review Desk.html`. It is a bundled single-page prototype; its
+page template and styles are what the UI follows. Decisions taken against it on
+2026-11-04:
+
+| Topic | Decision |
+|---|---|
+| Name | The mockup says "Review Desk"; the app keeps **Codebase Review Tool** in the header and titles. |
+| Screens | Three in the mockup: Pull requests (home), Configuration (behind the gear icon), Report. The app adds Worktrees, linked from Configuration, and folds the environment view and checks into Configuration below the flow steps. |
+| Header | Sticky, 64px: brand mark and name, one nav link "Pull requests", then a theme toggle and the Configuration gear on the right. No other nav items. |
+| Theme | Light and dark via CSS custom properties on `:root[data-theme]`; `theme.js` applies the saved choice (localStorage, falling back to the OS preference) before first paint, and the header toggle flips it. |
+| Type | System fonts only. Helvetica Neue / Arial for text; Cascadia Mono (Windows 11), falling back to Consolas, for numbers, branches, paths and prompts, in place of the mockup's JetBrains Mono. Page title 40px/500, section titles 20px/500, body 15px. |
+| Layout | Content column 1120px wide with 32px gutters; page padding 64px top, 120px bottom; sections 72px apart. Tables are CSS grids with a dark rule under the header row and light rules between rows, not `<table>` elements. |
+| Severities | Five, extending the mockup's three: Critical, High, Medium, Low, Info, each with its own colour token (`--critical`, `--high`, `--med`, `--low`, `--info`) and a filter pill. |
+| Pull request row | Number (mono), title, then Repo / Author / Branch; the right column holds the action for the row's state (§7 Phase 2 and Phase 5). |
+| Configuration | Numbered rail of step cards with model dropdown, prompt textarea, "Edited" marker and per-step "Reset to default"; page-level Save / Discard. Checks, repositories and environment sections follow below. |
+| Report | Aside (metadata, severity counts, earlier reviews) beside the title and summary; Architecture iframe full width; Issues grid with filter pills. |
+| Tokens | `--bg`, `--surface`, `--sunken`, `--ink`, `--muted`, `--faint`, `--line`, `--line-strong`, `--accent`, `--accent-bg`, `--on-accent`, `--accent-soft`, the five severity colours, `--mono`, `--sans`. Components: `.page`, `.page-head`, `.page-title`, `.page-lede`, `.section`, `.section-head`, `.list-head`, `.btn-primary`, `.btn-secondary`, `.btn-link`, `.icon-btn`, `.kv`, `.kv-stack`, `.rows` / `.row-head` / `.row`, `.sev-*`, `.spinner`, `.select`, `.textarea`. |
+
+Where the mockup and the earlier plan disagreed, the mockup won except for the name,
+the severity count and the additions listed above.

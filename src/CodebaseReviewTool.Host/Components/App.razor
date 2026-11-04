@@ -1,21 +1,27 @@
 ﻿<!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <meta content="width=device-width, initial-scale=1.0"
+          name="viewport" />
+
     <base href="/" />
     <ResourcePreloader />
-    <link rel="stylesheet" href="@Assets["app.css"]" />
-    <link rel="stylesheet" href="@Assets["CodebaseReviewTool.Host.styles.css"]" />
+
+    <link href="@Assets["app.css"]"
+          rel="stylesheet" />
+
+    <link href="@Assets["CodebaseReviewTool.Host.styles.css"]"
+          rel="stylesheet" />
+
+    <script src="@Assets["theme.js"]"></script>
     <ImportMap />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
-
 <body>
     <Routes @rendermode="InteractiveServer" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
-
 </html>

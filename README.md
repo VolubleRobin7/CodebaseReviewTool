@@ -47,7 +47,7 @@ unset to have the tool detect the newest version the server supports (TFS 2017 u
 Set `DevOps:UseDefaultCredentials` to `true` to authenticate to an on-prem server with your
 Windows account instead of a PAT (the PAT may then be left empty).
 
-The Settings page (http://localhost:5210/settings) shows the effective configuration
+The Configuration page (http://localhost:5210/configuration) shows the effective configuration
 (the PAT only as "set") and has checks for Claude, git, DevOps and each repository.
 
 ## Run

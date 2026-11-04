@@ -1,0 +1,17 @@
+You are reviewing pull request #{{PR_ID}} "{{PR_TITLE}}" by {{PR_AUTHOR}} in the {{REPO_NAME}} repository.
+
+The current directory is a git worktree checked out at the pull request's source commit {{SOURCE_COMMIT}} (branch {{SOURCE_BRANCH}}). The target branch is {{TARGET_BRANCH}} and the merge base is {{MERGE_BASE}}. See the full change with:
+
+    git diff {{MERGE_BASE}} {{SOURCE_COMMIT}}
+
+Pull request description:
+{{PR_DESCRIPTION}}
+
+Files changed:
+{{CHANGED_FILES}}
+
+Review the change for real problems: bugs and logic errors, security weaknesses, missing or incorrect error handling, performance concerns, resource or disposal leaks, race conditions, missing validation, and departures from the conventions you can see in the surrounding code. Read enough of the existing code to judge whether something is actually wrong rather than merely unfamiliar.
+
+For each issue give a severity (Critical, High, Medium, Low or Info), a short category such as Bug, Security, Performance, Error handling, Maintainability or Convention, the file path relative to the repository root and the line number where it applies, a one-sentence title, a description that explains why it matters, and a concrete suggested fix. Skip purely stylistic comments and anything you cannot point to in the code. If you find nothing worth raising, return an empty list.
+
+Return the issues in the JSON structure described below.

@@ -117,7 +117,7 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                     ResultText = table.Column<string>(type: "TEXT", nullable: false),
                     StdErr = table.Column<string>(type: "TEXT", nullable: false),
                     ExitCode = table.Column<int>(type: "INTEGER", nullable: true),
-                    ClaudeSessionId = table.Column<string>(type: "TEXT", nullable: true),
+                    AgentSessionId = table.Column<string>(type: "TEXT", nullable: true),
                     DurationMs = table.Column<long>(type: "INTEGER", nullable: true),
                     CostUsd = table.Column<double>(type: "REAL", nullable: true),
                     StartedAt = table.Column<DateTime>(type: "TEXT", nullable: true),

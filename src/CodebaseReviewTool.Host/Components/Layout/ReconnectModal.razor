@@ -1,31 +1,50 @@
-﻿<script type="module" src="@Assets["Components/Layout/ReconnectModal.razor.js"]"></script>
+﻿<script src="@Assets["Components/Layout/ReconnectModal.razor.js"]"
+        type="module"></script>
 
-<dialog id="components-reconnect-modal" data-nosnippet>
+<dialog data-nosnippet
+        id="components-reconnect-modal">
+
     <div class="components-reconnect-container">
-        <div class="components-rejoining-animation" aria-hidden="true">
-            <div></div>
-            <div></div>
+        <div aria-hidden="true"
+             class="components-rejoining-animation">
+
+            <div />
+            <div />
+
         </div>
-        <p class="components-reconnect-first-attempt-visible">
-            Rejoining the server...
-        </p>
+
+        <p class="components-reconnect-first-attempt-visible">Rejoining the server...</p>
         <p class="components-reconnect-repeated-attempt-visible">
-            Rejoin failed... trying again in <span id="components-seconds-to-next-attempt"></span> seconds.
+            Rejoin failed... trying again in
+            <span id="components-seconds-to-next-attempt" />
+            seconds.
         </p>
         <p class="components-reconnect-failed-visible">
-            Failed to rejoin.<br />Please retry or reload the page.
+            Failed to rejoin.
+            <br />
+            Please retry or reload the page.
         </p>
-        <button id="components-reconnect-button" class="components-reconnect-failed-visible">
+
+        <button class="components-reconnect-failed-visible"
+                id="components-reconnect-button">
+
             Retry
+
         </button>
-        <p class="components-pause-visible">
-            The session has been paused by the server.
-        </p>
+
+        <p class="components-pause-visible">The session has been paused by the server.</p>
         <p class="components-resume-failed-visible">
-            Failed to resume the session.<br />Please retry or reload the page.
+            Failed to resume the session.
+            <br />
+            Please retry or reload the page.
         </p>
-        <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
+
+        <button class="components-pause-visible components-resume-failed-visible"
+                id="components-resume-button">
+
             Resume
+
         </button>
     </div>
+
 </dialog>

@@ -1,6 +1,6 @@
 namespace CodebaseReviewTool.Core.Processes;
 
-/// <summary>The only place an external process is started. Git and Claude both go through it.</summary>
+/// <summary>The only place an external process is started. Git and the AI agent both go through it.</summary>
 public interface IProcessRunner
 {
     /// <summary>

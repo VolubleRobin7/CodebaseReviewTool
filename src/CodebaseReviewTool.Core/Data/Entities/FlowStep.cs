@@ -6,13 +6,13 @@ public class FlowStep
     /// <summary>Primary key and sequence number, starting at 0.</summary>
     public int Step { get; set; }
 
-    /// <summary>Prompt text; a leading <c>/skill-name</c> runs a skill. Empty until the user edits the flow.</summary>
+    /// <summary>Prompt text with placeholders; a leading <c>/skill-name</c> invokes an agent skill. Seeded from the shipped default.</summary>
     public string PromptText { get; set; } = string.Empty;
 
-    /// <summary>Overrides <c>Claude:DefaultModel</c> for this step.</summary>
+    /// <summary>Model passed to the agent for this step; null uses the configured default.</summary>
     public string? Model { get; set; }
 
-    /// <summary>Overrides <c>Claude:TimeoutMinutes</c> for this step.</summary>
+    /// <summary>Timeout for this step; null uses the configured default.</summary>
     public int? TimeoutMinutes { get; set; }
 
     /// <summary>UTC.</summary>

@@ -1,0 +1,12 @@
+You are reviewing pull request #{{PR_ID}} "{{PR_TITLE}}" in the {{REPO_NAME}} repository.
+
+The current directory is a git worktree checked out at the pull request's source commit {{SOURCE_COMMIT}} (branch {{SOURCE_BRANCH}}). The target branch is {{TARGET_BRANCH}} and the merge base is {{MERGE_BASE}}. See the full change with:
+
+    git diff {{MERGE_BASE}} {{SOURCE_COMMIT}}
+
+Files changed:
+{{CHANGED_FILES}}
+
+Using the diff and the surrounding code, draw an architecture diagram of the components, services, modules or layers this change touches and how they interact. Show the direction of calls or data flow. Mark new components and modified components differently from unchanged ones, include a short legend, and leave out anything the change does not affect. Prefer a handful of meaningful boxes over one box per file.
+
+Reply with an HTML excerpt and nothing else: no explanation before or after it, no Markdown code fence, and no <html>, <head> or <body> tags. The excerpt is placed inside a sandboxed iframe that allows scripts, so it must be self-contained: inline SVG with inline CSS is preferred; if you use a diagramming library such as Mermaid, load it from a public CDN with a <script> tag inside the excerpt and initialise it there. Make it readable at about 1000 pixels wide on both light and dark backgrounds, and give it an explicit height so nothing is clipped.

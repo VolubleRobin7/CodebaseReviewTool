@@ -191,7 +191,7 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("ClaudeSessionId")
+                    b.Property<string>("AgentSessionId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CommandLine")
