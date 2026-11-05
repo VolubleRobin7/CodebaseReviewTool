@@ -191,13 +191,14 @@
             .ToDictionaryAsync(c => c.ReviewId);
 
         var reviews = latestReviews.ToDictionary(r => PullRequestListItem.KeyFor(r.RepositoryKey, r.PullRequestId));
+        var flowSteps = await db.FlowSteps.OrderBy(s => s.Step).Select(s => s.Step).ToListAsync();
 
         _items = [.. pullRequests.Select(p =>
         {
             var review = reviews.GetValueOrDefault(PullRequestListItem.KeyFor(p.RepositoryKey, p.Id));
             var counts = review is null ? null : issueCounts.GetValueOrDefault(review.Id);
             var name = RepositoryRegistry.Find(p.RepositoryKey)?.DisplayName ?? p.RepositoryKey;
-            return new PullRequestListItem(p, name, review, counts?.Total ?? 0, counts?.High ?? 0);
+            return new PullRequestListItem(p, name, review, counts?.Total ?? 0, counts?.High ?? 0, flowSteps);
         })];
 
         _reviewed = [.. _items

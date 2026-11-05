@@ -12,4 +12,4 @@ Files changed:
 
 Read the diff and as much of the surrounding code as you need to understand it. Then write a plain-English summary of what the change does and why, in no more than five short paragraphs. Name the main areas of the codebase it touches and call out any behaviour changes a reviewer should know about, including anything risky or incomplete.
 
-Do not list individual files. Do not use Markdown headings, bullet points, code fences or other formatting: the text is shown as plain paragraphs separated by blank lines.
+Do not list individual files. Do not use Markdown headings, bullet points, code fences or other formatting: the text is shown as plain paragraphs separated by blank lines. Start with the first sentence of the summary itself: no preamble such as "I've read the diff" and no closing remarks.

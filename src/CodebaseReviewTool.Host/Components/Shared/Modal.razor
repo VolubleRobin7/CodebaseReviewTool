@@ -1,0 +1,108 @@
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JS
+
+<div @onclick="CloseAsync"
+     @onkeydown="OnKeyDownAsync"
+     @ref="_backdrop"
+     class="modal-backdrop"
+     tabindex="-1">
+
+    <div @onclick:stopPropagation="true"
+         aria-labelledby="@_titleId"
+         aria-modal="true"
+         class="modal @Class"
+         role="dialog">
+
+        <div class="modal-head">
+            <h2 class="modal-title"
+                id="@_titleId">
+
+                @Title
+
+            </h2>
+
+            <button @onclick="CloseAsync"
+                    aria-label="Close"
+                    class="icon-btn modal-close"
+                    type="button">
+
+                &#x2715;
+
+            </button>
+        </div>
+
+        <div class="modal-body">
+
+            @ChildContent
+
+        </div>
+
+        @if (Footer is not null)
+        {
+            <div class="modal-foot">
+
+                @Footer
+
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private const string ScrollLockClass = "modal-open";
+
+    private readonly string _titleId = $"modal-title-{Guid.NewGuid():N}";
+
+    private ElementReference _backdrop;
+
+    /// <summary>Heading shown at the top of the dialog.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Extra class for the dialog box, for sizing.</summary>
+    [Parameter]
+    public string? Class { get; set; }
+
+    /// <summary>The dialog's content.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Buttons shown along the bottom, if any.</summary>
+    [Parameter]
+    public RenderFragment? Footer { get; set; }
+
+    /// <summary>Raised when the user closes the dialog with the close button, the backdrop or Escape.</summary>
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // The body sits outside the Blazor root, so the class that stops the page scrolling behind the dialog is
+            // toggled through interop. Focusing the backdrop lets Escape work before the user clicks anything inside.
+            await JS.InvokeVoidAsync("document.body.classList.add", ScrollLockClass);
+            await _backdrop.FocusAsync();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("document.body.classList.remove", ScrollLockClass);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser has gone, so there is no page left to unlock.
+        }
+    }
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+
+    private Task OnKeyDownAsync(KeyboardEventArgs e) => e.Key == "Escape" ? CloseAsync() : Task.CompletedTask;
+}

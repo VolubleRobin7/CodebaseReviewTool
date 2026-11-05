@@ -11,9 +11,11 @@ using Microsoft.Extensions.Options;
 namespace CodebaseReviewTool.Core.Hosting;
 
 /// <summary>
-/// Takes queued reviews off <see cref="ReviewQueue"/> and prepares each one's worktree, with at most
-/// <c>Reviews:MaxConcurrent</c> in flight. On start it fails reviews a previous run left part-way and re-queues reviews
-/// that were still waiting. A failing review records its error and never stops the service.
+/// Takes queued reviews off <see cref="ReviewQueue"/>, prepares each one's worktree and runs its flow steps through
+/// <see cref="ReviewOrchestrator"/>, with at most <c>Reviews:MaxConcurrent</c> in flight. A review re-queued to re-run
+/// from a step reuses its worktree, recreating it when the folder has gone. On start it fails reviews a previous run
+/// left part-way and re-queues reviews that were still waiting. A failing review records its error and never stops
+/// the service; stopping the service stops the running agent and leaves the review for the next start to mark.
 /// </summary>
 public sealed class ReviewQueueService(
     IDbContextFactory<ReviewDbContext> dbContextFactory,
@@ -21,6 +23,7 @@ public sealed class ReviewQueueService(
     ReviewEvents events,
     IRepositoryRegistry registry,
     WorktreeService worktreeService,
+    ReviewOrchestrator orchestrator,
     IOptions<ReviewOptions> options,
     ILogger<ReviewQueueService> logger) : BackgroundService
 {
@@ -31,6 +34,7 @@ public sealed class ReviewQueueService(
     private readonly ReviewEvents _events = events;
     private readonly IRepositoryRegistry _registry = registry;
     private readonly WorktreeService _worktreeService = worktreeService;
+    private readonly ReviewOrchestrator _orchestrator = orchestrator;
     private readonly ReviewOptions _options = options.Value;
     private readonly ILogger<ReviewQueueService> _logger = logger;
 
@@ -93,6 +97,7 @@ public sealed class ReviewQueueService(
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var unfinished = await db.Reviews
+            .Include(r => r.StepRuns)
             .Where(r => r.CompletedAt == null && r.Error == null)
             .OrderBy(r => r.Id)
             .ToListAsync(cancellationToken);
@@ -102,6 +107,13 @@ public sealed class ReviewQueueService(
         {
             review.Error = InterruptedError;
             review.CompletedAt = DateTime.UtcNow;
+
+            // The step that was running when the agent was stopped would otherwise read as running forever.
+            foreach (var run in review.StepRuns.Where(s => s.CompletedAt is null && s.Error is null))
+            {
+                run.Error = InterruptedError;
+                run.CompletedAt = review.CompletedAt;
+            }
 
             // A worktree added just before the stop is not recorded yet; record it so it is listed and cleaned up.
             var expectedPath = _worktreeService.GetWorktreePath(review.RepositoryKey, review.PullRequestId, review.Id);
@@ -130,7 +142,10 @@ public sealed class ReviewQueueService(
     {
         try
         {
-            await PrepareAsync(reviewId, cancellationToken);
+            if (await PrepareAsync(reviewId, cancellationToken))
+            {
+                await _orchestrator.RunAsync(reviewId, cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -138,13 +153,18 @@ public sealed class ReviewQueueService(
         }
         catch (Exception ex)
         {
-            var error = ex is WorktreeException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}";
+            var error = ex is WorktreeException or InvalidOperationException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}";
             _logger.LogWarning("Review {ReviewId} failed: {Error}", reviewId, error);
             await TryFailAsync(reviewId, error);
         }
     }
 
-    private async Task PrepareAsync(int reviewId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Makes sure the review has a worktree on disk: creates it for a new review, reuses it for a review re-queued to
+    /// re-run from a step, and recreates it when that review's folder has gone. Returns false when the review should
+    /// not run (deleted, or already finished).
+    /// </summary>
+    private async Task<bool> PrepareAsync(int reviewId, CancellationToken cancellationToken)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -152,16 +172,33 @@ public sealed class ReviewQueueService(
         if (review is null)
         {
             _logger.LogInformation("Review {ReviewId} no longer exists; skipped", reviewId);
-            return;
+            return false;
         }
 
-        if (review.StartedAt is not null || review.CompletedAt is not null || review.Error is not null)
+        if (review.CompletedAt is not null || review.Error is not null)
         {
-            _logger.LogInformation("Review {ReviewId} has already been picked up; skipped", reviewId);
-            return;
+            _logger.LogInformation("Review {ReviewId} has already finished; skipped", reviewId);
+            return false;
         }
 
-        review.StartedAt = DateTime.UtcNow;
+        if (review.StartedAt is not null)
+        {
+            if (!string.IsNullOrEmpty(review.WorktreePath) && Directory.Exists(review.WorktreePath))
+            {
+                _logger.LogInformation("Review {ReviewId} continues in its existing worktree at {Path}", review.Id, review.WorktreePath);
+                return true;
+            }
+
+            // Cleared first so the review reads as preparing its worktree until the new one is ready.
+            _logger.LogInformation("The worktree of review {ReviewId} has gone; recreating it", review.Id);
+            review.WorktreePath = string.Empty;
+            review.WorktreeRemovedAt = null;
+        }
+        else
+        {
+            review.StartedAt = DateTime.UtcNow;
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         Publish(review);
 
@@ -182,6 +219,7 @@ public sealed class ReviewQueueService(
             "Worktree ready for review {ReviewId} of pull request #{PullRequestId} at {Path} (merge base {MergeBase})",
             review.Id, review.PullRequestId, worktree.Path, worktree.MergeBaseCommit);
         Publish(review);
+        return true;
     }
 
     /// <summary>Records the error on a fresh context, since the one that failed may hold unsaved or broken state.</summary>
@@ -190,7 +228,9 @@ public sealed class ReviewQueueService(
         try
         {
             await using var db = await _dbContextFactory.CreateDbContextAsync(CancellationToken.None);
-            var review = await db.Reviews.FindAsync([reviewId], CancellationToken.None);
+            var review = await db.Reviews
+                .Include(r => r.StepRuns)
+                .FirstOrDefaultAsync(r => r.Id == reviewId, CancellationToken.None);
             if (review is null)
             {
                 return;
@@ -198,6 +238,12 @@ public sealed class ReviewQueueService(
 
             review.Error = error;
             review.CompletedAt = DateTime.UtcNow;
+
+            foreach (var run in review.StepRuns.Where(s => s.CompletedAt is null && s.Error is null))
+            {
+                run.Error = error;
+                run.CompletedAt = review.CompletedAt;
+            }
             await db.SaveChangesAsync(CancellationToken.None);
             Publish(review);
         }

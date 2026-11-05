@@ -67,7 +67,12 @@ Each review gets its own git worktree, detached at the pull request's source com
 `Git:WorktreeRoot` (`<root>\<repository key>\pr-<id>-r<review id>`); "Start review" fetches
 the clone and creates it. Worktrees are removed from the Worktrees page (linked from
 Configuration) or automatically `Git:AutoCleanupAfterDays` days after a review finishes.
-Reviews do not run the agent steps yet, so a review stays "Reviewing…" once its worktree is ready.
+
+Once the worktree is ready the review runs the three flow steps (summary, architecture diagram,
+issues) one after another, each as its own headless Claude Code CLI run (`claude -p`) inside the
+worktree with the read-only tool allowlist from `Claude:AllowedTools`. The prompts are edited on
+the Configuration page under "Flow steps"; each step can also pick a model and a timeout, and
+"Reset to default" restores the shipped prompt. Saved changes apply to reviews started afterwards.
 
 ## Design
 

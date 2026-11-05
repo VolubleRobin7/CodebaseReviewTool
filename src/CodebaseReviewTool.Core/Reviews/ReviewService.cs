@@ -76,6 +76,55 @@ public sealed class ReviewService(
         return review;
     }
 
+    /// <summary>
+    /// Re-runs a finished review from <paramref name="step"/> onwards in its existing worktree: deletes the step runs
+    /// from that step on (and the issues, when the last step is among them), clears the review's error and completion
+    /// time, and queues it again. Throws <see cref="InvalidOperationException"/> when the review does not exist or is
+    /// still queued, preparing its worktree or running.
+    /// </summary>
+    public async Task RerunFromStepAsync(int reviewId, int step, CancellationToken cancellationToken = default)
+    {
+        Review review;
+        await _startGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+            review = await db.Reviews
+                .Include(r => r.StepRuns)
+                .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken)
+                ?? throw new InvalidOperationException($"Review {reviewId} does not exist.");
+
+            if (review.State is ReviewState.Queued or ReviewState.PreparingWorktree or ReviewState.Running)
+            {
+                throw new InvalidOperationException($"Review {reviewId} is {Describe(review.State)}; wait for it to finish.");
+            }
+
+            var lastStep = await db.FlowSteps.MaxAsync(s => (int?)s.Step, cancellationToken);
+
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            await db.ReviewStepRuns.Where(s => s.ReviewId == reviewId && s.Step >= step).ExecuteDeleteAsync(cancellationToken);
+            if (lastStep is not null && lastStep >= step)
+            {
+                await db.Issues.Where(i => i.ReviewId == reviewId).ExecuteDeleteAsync(cancellationToken);
+            }
+
+            review.Error = null;
+            review.CompletedAt = null;
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        finally
+        {
+            _startGate.Release();
+        }
+
+        _queue.Enqueue(review.Id);
+        _logger.LogInformation("Re-queued review {ReviewId} to run again from step {Step}", review.Id, step);
+        _events.PublishReviewChanged(new ReviewChangedEventArgs(review.Id, review.PullRequestId, review.RepositoryKey));
+    }
+
     public void Dispose() => _startGate.Dispose();
 
     private static string Describe(ReviewState state) => state switch

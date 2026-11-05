@@ -1,0 +1,303 @@
+@using CodebaseReviewTool.Core.Data.Entities
+@using CodebaseReviewTool.Core.Git
+@using CodebaseReviewTool.Core.Prompts
+
+@inject IRepositoryRegistry RepositoryRegistry
+
+<li class="step">
+    <div class="step-marker">
+        <span class="step-circle">@(Index + 1)</span>
+        @if (!IsLast)
+        {
+            <span class="step-line" />
+        }
+    </div>
+
+    <div class="step-card">
+        <div class="step-head">
+            <h3 class="step-title">@FlowStepLabels.Title(Index)</h3>
+            @if (!string.IsNullOrEmpty(FlowStepLabels.Description(Index)))
+            {
+                <p class="step-description">@FlowStepLabels.Description(Index)</p>
+            }
+        </div>
+
+        <div class="step-toolbar">
+            <label class="step-field">
+                <span class="step-field-label">Model</span>
+
+                <select @bind="SelectedModel"
+                        @bind:after="NotifyChangedAsync"
+                        class="select">
+
+                    @foreach (var model in ModelChoices)
+                    {
+                        <option value="@model">@(model == DefaultModel ? $"{model} (default)" : model)</option>
+                    }
+
+                </select>
+            </label>
+
+            <label class="step-field">
+                <span class="step-field-label">Timeout</span>
+
+                <input @bind="Draft.TimeoutMinutes"
+                       @bind:after="NotifyChangedAsync"
+                       @bind:event="oninput"
+                       class="input step-timeout"
+                       max="1440"
+                       min="1"
+                       placeholder="@DefaultTimeoutMinutes"
+                       type="number" />
+
+                <span class="step-field-label">minutes</span>
+            </label>
+
+            <span class="step-toolbar-end">
+                @if (Draft.IsEdited)
+                {
+                    <span class="step-edited">Edited</span>
+                }
+
+                <button @onclick="() => _confirmingReset = true"
+                        class="btn btn-link"
+                        disabled="@(Draft.IsDefault || Draft.DefaultPromptText is null)"
+                        type="button">
+
+                    Reset to default
+
+                </button>
+            </span>
+        </div>
+
+        @if (!Draft.IsValid)
+        {
+            <p class="step-invalid">The timeout must be between 1 and 1440 minutes, or empty for the default.</p>
+        }
+
+        <textarea @bind="Draft.PromptText"
+                  @bind:after="NotifyChangedAsync"
+                  @bind:event="oninput"
+                  aria-label="@($"{FlowStepLabels.Title(Index)} prompt")"
+                  class="textarea"
+                  rows="10"
+                  spellcheck="false" />
+
+        @if (UnknownPlaceholders.Count > 0)
+        {
+            <p class="placeholder-unknown">
+                Unknown placeholders, left as written:
+                @foreach (var name in UnknownPlaceholders)
+                {
+                    <span class="mono">{{@name}}</span>
+                }
+            </p>
+        }
+
+        <div class="step-panels">
+            <details class="disclosure">
+                <summary>Placeholders</summary>
+                <dl class="placeholder-list">
+                    @foreach (var placeholder in PromptRenderer.Placeholders)
+                    {
+                        <dt class="mono">@placeholder.Token</dt>
+                        <dd>@placeholder.Description</dd>
+                    }
+                </dl>
+            </details>
+
+            <button @onclick="OpenPreview"
+                    class="btn btn-secondary btn-small"
+                    type="button">
+
+                Preview
+
+            </button>
+        </div>
+
+        @if (IsLast)
+        {
+            <details class="disclosure">
+                <summary>Appended automatically</summary>
+                <pre class="mono-block">@IssuesSchema.Instruction.Trim()</pre>
+            </details>
+        }
+    </div>
+</li>
+
+@if (_confirmingReset)
+{
+    <Modal OnClose="() => _confirmingReset = false"
+           Title="@($"Reset {FlowStepLabels.Title(Index)} to default?")">
+
+        <ChildContent>
+            <p class="modal-text">This replaces the prompt with the one the tool ships and clears the model and timeout overrides. Nothing is saved until you choose Save changes.</p>
+        </ChildContent>
+
+        <Footer>
+            <button @onclick="() => _confirmingReset = false"
+                    class="btn btn-secondary"
+                    type="button">
+
+                Keep my prompt
+
+            </button>
+
+            <button @onclick="ResetAsync"
+                    class="btn btn-primary"
+                    type="button">
+
+                Reset to default
+
+            </button>
+        </Footer>
+
+    </Modal>
+}
+
+@if (_previewOpen)
+{
+    <Modal Class="modal-wide"
+           OnClose="() => _previewOpen = false"
+           Title="@($"Preview: {FlowStepLabels.Title(Index)}")">
+
+        @if (PullRequests.Count == 0)
+        {
+            <p class="modal-text">There are no open pull requests to preview with.</p>
+        }
+        else
+        {
+            <label class="step-field modal-field">
+                <span class="step-field-label">Pull request</span>
+
+                <select @bind="_previewKey"
+                        @bind:after="RenderPreview"
+                        class="select modal-select">
+
+                    @foreach (var pullRequest in PullRequests)
+                    {
+                        <option value="@KeyFor(pullRequest)">#@pullRequest.Id @pullRequest.Title</option>
+                    }
+
+                </select>
+            </label>
+
+            <pre class="mono-block modal-pre">@_preview</pre>
+        }
+
+    </Modal>
+}
+
+@code {
+    private const string ComputedLater = "(computed when the review runs)";
+
+    private string? _previewKey;
+    private string? _preview;
+    private bool _previewOpen;
+    private bool _confirmingReset;
+
+    /// <summary>The step being edited.</summary>
+    [Parameter, EditorRequired]
+    public FlowStepDraft Draft { get; set; } = default!;
+
+    /// <summary>The step's 0-based position in the flow, which decides its label and number.</summary>
+    [Parameter]
+    public int Index { get; set; }
+
+    /// <summary>True for the flow's last step, which gets the issues instruction appended.</summary>
+    [Parameter]
+    public bool IsLast { get; set; }
+
+    /// <summary>Models offered besides the default.</summary>
+    [Parameter]
+    public IReadOnlyList<string> Models { get; set; } = [];
+
+    /// <summary>The model used when a step sets none.</summary>
+    [Parameter, EditorRequired]
+    public string DefaultModel { get; set; } = string.Empty;
+
+    /// <summary>The configured default timeout, shown as the timeout's placeholder.</summary>
+    [Parameter]
+    public int DefaultTimeoutMinutes { get; set; }
+
+    /// <summary>Cached open pull requests to preview the prompt against.</summary>
+    [Parameter]
+    public IReadOnlyList<PullRequest> PullRequests { get; set; } = [];
+
+    /// <summary>Raised after any edit, so the page can update its Save and Discard buttons.</summary>
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    // Choosing the default model stores no override, so the step follows the default if it changes later.
+    private string SelectedModel
+    {
+        get => Draft.Model ?? DefaultModel;
+        set => Draft.Model = value == DefaultModel ? null : value;
+    }
+
+    // The default is always offered, and a saved model that is no longer configured stays selectable, so opening
+    // the page never changes a step.
+    private IEnumerable<string> ModelChoices
+    {
+        get
+        {
+            var choices = Models.Contains(DefaultModel) ? Models : Models.Prepend(DefaultModel);
+            return Draft.Model is { } current && !choices.Contains(current) ? choices.Append(current) : choices;
+        }
+    }
+
+    private IReadOnlyList<string> UnknownPlaceholders => PromptRenderer.FindUnknownPlaceholders(Draft.PromptText);
+
+    protected override void OnParametersSet()
+    {
+        if (_previewKey is null || !PullRequests.Any(p => KeyFor(p) == _previewKey))
+        {
+            _previewKey = PullRequests.Count > 0 ? KeyFor(PullRequests[0]) : null;
+        }
+    }
+
+    private Task NotifyChangedAsync() => OnChanged.InvokeAsync();
+
+    private async Task ResetAsync()
+    {
+        _confirmingReset = false;
+        Draft.ResetToDefault();
+        await NotifyChangedAsync();
+    }
+
+    private void OpenPreview()
+    {
+        RenderPreview();
+        _previewOpen = true;
+    }
+
+    private void RenderPreview()
+    {
+        var pullRequest = PullRequests.FirstOrDefault(p => KeyFor(p) == _previewKey);
+        if (pullRequest is null)
+        {
+            _preview = null;
+            return;
+        }
+
+        var context = new PromptContext(
+            PullRequestId: pullRequest.Id,
+            Title: pullRequest.Title,
+            Description: pullRequest.Description,
+            Author: pullRequest.AuthorName,
+            Url: pullRequest.Url,
+            RepositoryKey: pullRequest.RepositoryKey,
+            RepositoryName: RepositoryRegistry.Find(pullRequest.RepositoryKey)?.DisplayName ?? pullRequest.RepositoryKey,
+            SourceBranch: pullRequest.SourceBranch,
+            TargetBranch: pullRequest.TargetBranch,
+            SourceCommit: pullRequest.SourceCommit,
+            MergeBase: ComputedLater,
+            ChangedFiles: ComputedLater,
+            WorktreePath: ComputedLater);
+
+        var text = PromptRenderer.Render(Draft.PromptText, context).Text;
+        _preview = IsLast ? text + IssuesSchema.Instruction : text;
+    }
+
+    private static string KeyFor(PullRequest pullRequest) => $"{pullRequest.RepositoryKey}/{pullRequest.Id}";
+}

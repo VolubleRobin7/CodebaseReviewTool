@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 3 complete (worktrees, queue consumer, cleanup, Worktrees page). Phases 4+ not started.
+Status: Phase 4 complete (agent runner, flow step editor, orchestration). Phases 5+ not started.
 
 ---
 
@@ -155,7 +155,7 @@ dotnet ef migrations add <Name> --project src/CodebaseReviewTool.Core --startup-
 
   "Claude": {
     "ExecutablePath": "%USERPROFILE%\\.local\\bin\\claude.exe",
-    "DefaultModel": null,                                         // null = CLI default
+    "DefaultModel": "opus",                                       // optional: the code default is opus
     "Models": ["opus", "sonnet", "haiku"],                        // choices offered per step on the Configuration page
     "TimeoutMinutes": 20,
     "MaxTurns": 50,
@@ -433,13 +433,14 @@ Goal: a review runs end to end and stores the three outputs.
 
 - Flow steps on the Configuration page, replacing the placeholder: the mockup's numbered
   rail with a card per step (0 Summary, 1 Diagram, 2 Issues). Each card has a title and
-  description, a model dropdown fed by `Claude:Models` (with "CLI default"), one prompt
+  description, a model dropdown fed by `Claude:Models` plus `Claude:DefaultModel`, one prompt
   text box (start it with `/skill-name …` to run a skill), optional timeout, an
-  "Edited" marker, a placeholder reference panel and a "Preview rendered prompt" against
-  a chosen PR. Page-level Save / Discard buttons in the page header as in the mockup.
-  The Issues card shows the fixed schema instruction that will be appended (read-only).
-  Per-step "Reset to default" restores the shipped prompt and clears the model
-  override, as in the mockup; it is enabled only when the step differs from the default.
+  "Edited" marker, a collapsible placeholder reference panel and a Preview button that
+  opens a dialog with a PR picker and the rendered prompt. Page-level Save / Discard
+  buttons in the page header as in the mockup. The Issues card shows the fixed schema
+  instruction that will be appended, read-only and collapsible. Per-step "Reset to
+  default" asks for confirmation, then restores the shipped prompt and clears the model
+  and timeout overrides; it is enabled only when the step differs from the default.
 - `PromptRenderer` (placeholders §6.1), the `IAgentRunner` boundary and its
   `ClaudeCodeRunner` implementation (§6.2) over `ProcessRunner`.
 - `IssuesParser` -> `Issue` rows; tolerant of a stray code fence around the JSON.

@@ -11,9 +11,13 @@ public sealed class ClaudeOptions
     [ConfirmNotPlaceholder]
     public string ExecutablePath { get; set; } = string.Empty;
 
-    /// <summary>Model passed with <c>--model</c> when a step sets none. Null means the CLI default.</summary>
+    /// <summary>Model passed with <c>--model</c> when a step sets none. Opus unless configuration overrides it.</summary>
+    [Required(ErrorMessage = "Claude:DefaultModel is required.")]
     [ConfirmNotPlaceholder]
-    public string? DefaultModel { get; set; }
+    public string DefaultModel { get; set; } = "opus";
+
+    /// <summary>Models offered per step on the Configuration page. The default model is always offered.</summary>
+    public string[] Models { get; set; } = [];
 
     [Range(1, 1440, ErrorMessage = "Claude:TimeoutMinutes must be between {1} and {2}.")]
     public int TimeoutMinutes { get; set; } = 20;

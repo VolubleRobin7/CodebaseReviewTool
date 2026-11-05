@@ -1,13 +1,18 @@
 @using CodebaseReviewTool.Core.Configuration
+@using CodebaseReviewTool.Core.Data
+@using CodebaseReviewTool.Core.Data.Entities
 @using CodebaseReviewTool.Core.DevOps
 @using CodebaseReviewTool.Core.Git
 @using CodebaseReviewTool.Core.Processes
+@using CodebaseReviewTool.Host.Components.Shared
+@using Microsoft.EntityFrameworkCore
 @using Microsoft.Extensions.Options
 
 @rendermode InteractiveServer
 
 @inject IOptions<ClaudeOptions> ClaudeOptions
 @inject IOptions<DatabaseOptions> DatabaseOptions
+@inject IDbContextFactory<ReviewDbContext> DbContextFactory
 @inject IDevOpsClient DevOpsClient
 @inject IOptions<DevOpsOptions> DevOpsOptions
 @inject IOptions<GitOptions> GitOptions
@@ -24,7 +29,27 @@
 <div class="page-head">
     <div class="page-head-text">
         <h1 class="page-title">Review configuration</h1>
-        <p class="page-lede">The flow steps run in order for every review and each produces one section of the report. The environment below is read from appsettings.json and user-secrets; edit those files and restart to change it.</p>
+        <p class="page-lede">These prompts run in order for every review. Each step produces one section of the report. Changes apply to reviews started after you save.</p>
+    </div>
+
+    <div class="page-actions">
+        <button @onclick="DiscardAsync"
+                class="btn btn-secondary"
+                disabled="@(!IsDirty || _saving)"
+                type="button">
+
+            Discard
+
+        </button>
+
+        <button @onclick="SaveAsync"
+                class="btn btn-primary"
+                disabled="@(!IsDirty || !IsValid || _saving)"
+                type="button">
+
+            @(IsDirty ? "Save changes" : "Saved")
+
+        </button>
     </div>
 </div>
 
@@ -32,7 +57,33 @@
     <div class="section-head">
         <h2 class="section-title">Flow steps</h2>
     </div>
-    <p class="empty">The step editor is not available yet.</p>
+
+    @if (_saveError is not null)
+    {
+        <p class="step-invalid">@_saveError</p>
+    }
+
+    @if (_drafts.Count == 0)
+    {
+        <p class="empty">The flow has no steps.</p>
+    }
+    else
+    {
+        <ol class="step-rail">
+            @for (var i = 0; i < _drafts.Count; i++)
+            {
+                <StepEditor @key="_drafts[i].Step"
+                            DefaultModel="@ClaudeOptions.Value.DefaultModel"
+                            DefaultTimeoutMinutes="@ClaudeOptions.Value.TimeoutMinutes"
+                            Draft="_drafts[i]"
+                            Index="i"
+                            IsLast="@(i == _drafts.Count - 1)"
+                            Models="ClaudeOptions.Value.Models"
+                            OnChanged="StateHasChanged"
+                            PullRequests="_pullRequests" />
+            }
+        </ol>
+    }
 </section>
 
 <section class="section">
@@ -138,6 +189,7 @@
     <div class="section-head">
         <h2 class="section-title">Environment</h2>
     </div>
+    <p class="section-note">Read from appsettings.json and user-secrets; edit those files and restart to change it.</p>
     <dl class="kv">
         <dt>Database</dt>
         <dd class="mono">@DatabaseOptions.Value.Path</dd>
@@ -145,7 +197,7 @@
         <dt>Claude executable</dt>
         <dd class="mono">@ClaudeOptions.Value.ExecutablePath</dd>
         <dt>Claude default model</dt>
-        <dd>@(ClaudeOptions.Value.DefaultModel ?? "CLI default")</dd>
+        <dd>@ClaudeOptions.Value.DefaultModel</dd>
         <dt>Claude timeout</dt>
         <dd>@ClaudeOptions.Value.TimeoutMinutes minutes</dd>
         <dt>Claude max turns</dt>
@@ -188,7 +240,16 @@
 
     private readonly List<Check> _checks = [];
 
+    private List<FlowStepDraft> _drafts = [];
+    private List<PullRequest> _pullRequests = [];
+    private bool _saving;
+    private string? _saveError;
+
     private bool AnyRunning => _checks.Any(c => c.IsRunning);
+
+    private bool IsDirty => _drafts.Any(d => d.IsEdited);
+
+    private bool IsValid => _drafts.All(d => d.IsValid);
 
     private string PatDescription => string.IsNullOrEmpty(DevOpsOptions.Value.Pat)
         ? "not set"
@@ -205,7 +266,7 @@
         null => "auto-detect (run the DevOps check)",
     };
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _checks.Add(new Check("Claude", CheckClaudeAsync));
         _checks.Add(new Check("git", CheckGitAsync));
@@ -214,6 +275,70 @@
         {
             _checks.Add(new Check($"Repository: {repository.DisplayName}", () => CheckRepositoryAsync(repository)));
         }
+
+        await LoadStepsAsync();
+    }
+
+    private async Task LoadStepsAsync()
+    {
+        await using var db = await DbContextFactory.CreateDbContextAsync();
+
+        var steps = await db.FlowSteps.AsNoTracking().OrderBy(s => s.Step).ToListAsync();
+        _drafts = [.. steps.Select(s => new FlowStepDraft(s))];
+
+        var keys = RepositoryRegistry.Repositories.Select(r => r.Key).ToList();
+        _pullRequests = await db.PullRequests
+            .AsNoTracking()
+            .Where(p => p.IsOpen && keys.Contains(p.RepositoryKey))
+            .OrderByDescending(p => p.Id)
+            .ToListAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_saving || !IsDirty || !IsValid)
+        {
+            return;
+        }
+
+        _saving = true;
+        _saveError = null;
+        try
+        {
+            // One SaveChanges is one transaction, so either every changed step is written or none is. Nothing is
+            // published: a review reads the flow when it starts.
+            await using var db = await DbContextFactory.CreateDbContextAsync();
+            var edited = _drafts.Where(d => d.IsEdited).ToList();
+            var stepNumbers = edited.Select(d => d.Step).ToList();
+            var rows = await db.FlowSteps.Where(s => stepNumbers.Contains(s.Step)).ToDictionaryAsync(s => s.Step);
+
+            var now = DateTime.UtcNow;
+            foreach (var draft in edited)
+            {
+                if (rows.TryGetValue(draft.Step, out var row))
+                {
+                    draft.ApplyTo(row);
+                    row.UpdatedAt = now;
+                }
+            }
+
+            await db.SaveChangesAsync();
+            edited.ForEach(d => d.MarkSaved());
+        }
+        catch (Exception ex)
+        {
+            _saveError = $"Saving failed: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DiscardAsync()
+    {
+        _saveError = null;
+        await LoadStepsAsync();
     }
 
     private async Task RunAllChecksAsync()

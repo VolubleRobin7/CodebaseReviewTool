@@ -84,7 +84,7 @@
             default:
                 <span class="pr-status">
                     <span class="spinner" />
-                    <span>Reviewing…</span>
+                    <span>@StatusText</span>
                 </span>
                 break;
         }
@@ -107,6 +107,13 @@
     /// <summary>Raised by "Start review", "Review again" and "Retry".</summary>
     [Parameter]
     public EventCallback OnStart { get; set; }
+
+    private string StatusText => Item switch
+    {
+        { State: ReviewState.PreparingWorktree } => "Preparing worktree…",
+        { CurrentStepNumber: { } number } => $"Reviewing… step {number} of {Item.FlowSteps.Count}",
+        _ => "Reviewing…",
+    };
 
     private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 }

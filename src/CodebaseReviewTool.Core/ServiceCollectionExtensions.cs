@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Core.Agents;
 using CodebaseReviewTool.Core.Configuration;
 using CodebaseReviewTool.Core.Data;
 using CodebaseReviewTool.Core.DevOps;
@@ -54,6 +55,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPollTrigger>(sp => sp.GetRequiredService<PollTrigger>());
         services.AddSingleton<ReviewQueue>();
         services.AddSingleton<ReviewService>();
+
+        // The AI tool that runs each flow step; another tool means another IAgentRunner registered here.
+        services.AddSingleton<IAgentRunner, ClaudeCodeRunner>();
+        services.AddSingleton<ReviewOrchestrator>();
 
         // Hosted services start in registration order. The initializer runs after options validation and before
         // Kestrel listens (resolves repositories, migrates and seeds), so the services registered after it always
