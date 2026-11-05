@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Prompts\Defaults\*.txt" />
+    <EmbeddedResource Include="Reporting\Templates\*" />
   </ItemGroup>
 
   <ItemGroup>

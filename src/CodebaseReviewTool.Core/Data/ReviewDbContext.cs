@@ -34,6 +34,7 @@ public class ReviewDbContext(DbContextOptions<ReviewDbContext> options) : DbCont
             entity.ToTable("FlowSteps");
             entity.HasKey(e => e.Step);
             entity.Property(e => e.Step).ValueGeneratedNever();
+            entity.Property(e => e.Name).HasMaxLength(100);
         });
 
         modelBuilder.Entity<PullRequest>(entity =>

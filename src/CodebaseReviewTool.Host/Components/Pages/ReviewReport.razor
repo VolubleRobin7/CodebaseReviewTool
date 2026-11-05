@@ -1,0 +1,375 @@
+@using CodebaseReviewTool.Core.Data.Enums
+@using CodebaseReviewTool.Core.Reporting
+@using CodebaseReviewTool.Core.Reviews
+@using CodebaseReviewTool.Host.Components.Shared
+
+@rendermode InteractiveServer
+
+@implements IDisposable
+
+@inject ILogger<ReviewReport> Logger
+@inject NavigationManager Navigation
+@inject ReportDataLoader ReportDataLoader
+@inject ReviewEvents ReviewEvents
+@inject ReviewService ReviewService
+
+@page "/reviews/{Id:int}"
+
+@if (_report is { } report)
+{
+    <PageTitle>#@report.PullRequest.Id @report.PullRequest.Title - Codebase Review Tool</PageTitle>
+
+    <div class="report">
+        <div class="report-top">
+            <aside class="report-aside">
+                <dl class="kv-stack">
+                    <div>
+                        <dt>Repository</dt>
+                        <dd>@report.RepositoryName</dd>
+                    </div>
+                    <div>
+                        <dt>Author</dt>
+                        <dd>@report.PullRequest.AuthorName</dd>
+                    </div>
+                    <div>
+                        <dt>Branch</dt>
+                        <dd class="mono report-branch">@report.PullRequest.SourceBranch</dd>
+                    </div>
+                    <div>
+                        <dt>Commit</dt>
+                        <dd class="mono">@report.ShortCommit</dd>
+                    </div>
+                    <div>
+                        <dt>Reviewed</dt>
+                        <dd>@report.ReviewedText</dd>
+                    </div>
+                </dl>
+
+                <div class="report-counts">
+                    @foreach (var severity in ReportFormat.Severities)
+                    {
+                        <div class="report-count">
+                            <span class="report-count-label">
+                                <span class="@($"report-dot {ReportFormat.SeverityClass(severity)}")" />
+                                @severity
+                            </span>
+                            <span class="report-count-value">@report.CountOf(severity)</span>
+                        </div>
+                    }
+                </div>
+
+                <div class="report-history">
+                    <span class="report-history-title">Reviews of this pull request</span>
+                    <ol class="report-history-list">
+                        @foreach (var entry in report.History)
+                        {
+                            <li class="@(entry.ReviewId == Id ? "report-history-item current" : "report-history-item")">
+                                @if (entry.ReviewId == Id)
+                                {
+                                    <span aria-current="page">@ReportFormat.Timestamp(entry.QueuedAt)</span>
+                                }
+                                else
+                                {
+                                    <a href="reviews/@entry.ReviewId">@ReportFormat.Timestamp(entry.QueuedAt)</a>
+                                }
+                                <span class="@(entry.State == ReviewState.Failed ? "report-history-state failed" : "report-history-state")">@HistoryText(entry)</span>
+                            </li>
+                        }
+                    </ol>
+                </div>
+            </aside>
+
+            <div class="report-main">
+                <header class="report-head">
+                    <span class="report-number">#@report.PullRequest.Id</span>
+                    <h1 class="page-title report-title">@report.PullRequest.Title</h1>
+
+                    <div class="report-actions">
+                        @if (!report.IsInProgress)
+                        {
+                            <a class="btn btn-secondary"
+                               download
+                               href="api/reviews/@Id/report">
+
+                                Download report
+
+                            </a>
+                        }
+
+                        @if (!string.IsNullOrEmpty(report.PullRequest.Url))
+                        {
+                            <a class="report-link"
+                               href="@report.PullRequest.Url"
+                               rel="noopener noreferrer"
+                               target="_blank">
+
+                                Open in DevOps &#x2197;
+
+                            </a>
+                        }
+                    </div>
+
+                    @if (report.IsInProgress)
+                    {
+                        <p class="report-progress">
+                            <span class="spinner" />
+                            <span>@ProgressText(report)</span>
+                        </p>
+                    }
+
+                    @if (report.FailedOutsideSteps)
+                    {
+                        <div class="report-failure">
+                            <p class="report-failure-title">The review failed.</p>
+                            <pre class="mono-block report-failure-error">@report.Review.Error</pre>
+
+                            <button @onclick="() => ConfirmRerun(report.FirstUnfinishedIndex ?? 0)"
+                                    class="btn btn-secondary report-failure-action"
+                                    disabled="@(!CanRerun)"
+                                    type="button">
+
+                                Re-run
+
+                            </button>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(_actionError))
+                    {
+                        <p class="report-error">@_actionError</p>
+                    }
+                </header>
+
+                <section class="section">
+                    <div class="section-head">
+                        <h2 class="section-title">@report.SectionTitle(ReportData.SummaryIndex)</h2>
+                    </div>
+
+                    <ReportStep CanRerun="CanRerun"
+                                Index="ReportData.SummaryIndex"
+                                OnRerun="ConfirmRerun"
+                                Report="report">
+
+                        @if (report.SummaryParagraphs.Count == 0)
+                        {
+                            <p class="empty">The summary is empty.</p>
+                        }
+                        else
+                        {
+                            <div class="report-summary">
+                                @foreach (var paragraph in report.SummaryParagraphs)
+                                {
+                                    <p>@paragraph</p>
+                                }
+                            </div>
+                        }
+
+                    </ReportStep>
+                </section>
+            </div>
+        </div>
+
+        <section class="section">
+            <div class="section-head">
+                <h2 class="section-title">@report.SectionTitle(ReportData.DiagramIndex)</h2>
+            </div>
+
+            <ReportStep CanRerun="CanRerun"
+                        Index="ReportData.DiagramIndex"
+                        OnRerun="ConfirmRerun"
+                        Report="report">
+
+                @if (string.IsNullOrWhiteSpace(report.DiagramHtml))
+                {
+                    <p class="empty">The diagram is empty.</p>
+                }
+                else
+                {
+                    <DiagramFrame Html="@report.DiagramHtml" />
+                }
+
+            </ReportStep>
+        </section>
+
+        <section class="section">
+            @if (report.RunAt(IssuesIndex) is { State: StepRunState.Succeeded })
+            {
+                <IssuesTable Issues="report.Issues"
+                             Title="@report.SectionTitle(IssuesIndex)" />
+            }
+            else
+            {
+                <div class="section-head">
+                    <h2 class="section-title">@report.SectionTitle(IssuesIndex)</h2>
+                </div>
+            }
+
+            <ReportStep CanRerun="CanRerun"
+                        Index="IssuesIndex"
+                        OnRerun="ConfirmRerun"
+                        Report="report" />
+        </section>
+    </div>
+
+    @if (_rerunIndex is { } rerunIndex)
+    {
+        <Modal OnClose="() => _rerunIndex = null"
+               Title="@($"Re-run {report.SectionTitle(rerunIndex)}?")">
+
+            <ChildContent>
+                <p class="modal-text">@RerunText(report, rerunIndex)</p>
+            </ChildContent>
+
+            <Footer>
+                <button @onclick="() => _rerunIndex = null"
+                        class="btn btn-secondary"
+                        type="button">
+
+                    Cancel
+
+                </button>
+
+                <button @onclick="() => RerunAsync(rerunIndex)"
+                        class="btn btn-primary"
+                        disabled="@_rerunning"
+                        type="button">
+
+                    Re-run
+
+                </button>
+            </Footer>
+
+        </Modal>
+    }
+}
+
+@code {
+    private ReportData? _report;
+    private int? _loadedId;
+    private int? _rerunIndex;
+    private bool _rerunning;
+    private string? _actionError;
+
+    /// <summary>The review's database id, from the address.</summary>
+    [Parameter]
+    public int Id { get; set; }
+
+    // What a step's output means is decided by its position, and the issues come from the flow's last step.
+    private int IssuesIndex => Math.Max(0, (_report?.FlowSteps.Count ?? 0) - 1);
+
+    private bool CanRerun => _report is { IsInProgress: false } && !_rerunning;
+
+    protected override void OnInitialized()
+    {
+        ReviewEvents.ReviewChanged += OnReviewChanged;
+        ReviewEvents.PullRequestsChanged += OnPullRequestsChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // The component is reused when following a link to another review of the same pull request.
+        if (_loadedId != Id)
+        {
+            _loadedId = Id;
+            _rerunIndex = null;
+            _actionError = null;
+            await LoadAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        ReviewEvents.ReviewChanged -= OnReviewChanged;
+        ReviewEvents.PullRequestsChanged -= OnPullRequestsChanged;
+    }
+
+    // Event handlers run on the publisher's thread; InvokeAsync moves the work onto this circuit's dispatcher. Changes
+    // to other reviews of the same pull request matter too, because the history lists them.
+    private void OnReviewChanged(ReviewChangedEventArgs args)
+    {
+        if (_report is { } report
+            && (args.ReviewId == Id
+                || (args.PullRequestId == report.PullRequest.Id && args.RepositoryKey == report.PullRequest.RepositoryKey)))
+        {
+            _ = InvokeAsync(ReloadAsync);
+        }
+    }
+
+    private void OnPullRequestsChanged() => _ = InvokeAsync(ReloadAsync);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Reloading review {ReviewId} failed", Id);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _report = await ReportDataLoader.LoadAsync(Id);
+        if (_report is null)
+        {
+            Navigation.NotFound();
+        }
+    }
+
+    private void ConfirmRerun(int index)
+    {
+        _actionError = null;
+        _rerunIndex = index;
+    }
+
+    private async Task RerunAsync(int index)
+    {
+        if (_rerunning || _report is null)
+        {
+            return;
+        }
+
+        _rerunning = true;
+        _actionError = null;
+        try
+        {
+            // ReviewChanged reloads the report, which shows the review running again.
+            await ReviewService.RerunFromStepAsync(Id, _report.FlowSteps[index].Step);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _actionError = ex.Message;
+        }
+        finally
+        {
+            _rerunning = false;
+            _rerunIndex = null;
+        }
+    }
+
+    private static string ProgressText(ReportData report) => report switch
+    {
+        { State: ReviewState.Queued } => "Queued; waiting for the reviews ahead of it.",
+        { State: ReviewState.PreparingWorktree } => "Preparing the worktree…",
+        { CurrentStepNumber: { } number } => $"Reviewing… step {number} of {report.FlowSteps.Count}",
+        _ => "Reviewing…",
+    };
+
+    private static string HistoryText(ReviewHistoryEntry entry) => entry.State switch
+    {
+        ReviewState.Completed => entry.IssueCount == 1 ? "1 issue" : $"{entry.IssueCount} issues",
+        ReviewState.Failed => "Failed",
+        ReviewState.Queued => "Queued",
+        _ => "Reviewing…",
+    };
+
+    private static string RerunText(ReportData report, int index)
+    {
+        var later = index < report.FlowSteps.Count - 1 ? " and every step after it" : string.Empty;
+        return $"This discards the output of {report.SectionTitle(index)}{later}, then runs it again in the review's "
+            + "worktree, which is recreated first if it has been removed. Earlier steps keep their results.";
+    }
+}

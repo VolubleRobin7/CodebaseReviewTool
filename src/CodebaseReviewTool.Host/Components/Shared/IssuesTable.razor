@@ -1,0 +1,99 @@
+@using CodebaseReviewTool.Core.Data.Entities
+@using CodebaseReviewTool.Core.Data.Enums
+@using CodebaseReviewTool.Core.Reporting
+
+<div class="section-head">
+    <h2 class="section-title">@Title</h2>
+
+    @if (Issues.Count > 0)
+    {
+        <div class="pills">
+            <button @onclick="() => _filter = null"
+                    aria-pressed="@(_filter is null ? "true" : "false")"
+                    class="@PillClass(null)"
+                    type="button">
+
+                All @Issues.Count
+
+            </button>
+
+            @foreach (var severity in ReportFormat.Severities)
+            {
+                <button @onclick="() => _filter = severity"
+                        aria-pressed="@(_filter == severity ? "true" : "false")"
+                        class="@PillClass(severity)"
+                        type="button">
+
+                    @severity @(Issues.Count(i => i.Severity == severity))
+
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@if (Issues.Count == 0)
+{
+    <p class="empty">No issues found.</p>
+}
+else
+{
+    <div class="rows">
+        <div class="row-head issue-row">
+            <span>Severity</span>
+            <span>Description</span>
+            <span>Suggested fix</span>
+        </div>
+
+        @foreach (var issue in Shown)
+        {
+            <div @key="issue.Id"
+                 class="row issue-row">
+
+                <div class="issue-severity">
+                    <SeverityBadge Severity="issue.Severity" />
+                    @if (!string.IsNullOrWhiteSpace(issue.Category))
+                    {
+                        <span class="issue-category">@issue.Category</span>
+                    }
+                </div>
+
+                <div class="issue-text">
+                    @if (!string.IsNullOrWhiteSpace(issue.Title))
+                    {
+                        <span class="issue-title">@issue.Title</span>
+                    }
+                    <span class="issue-description">@issue.Description</span>
+                    @if (!string.IsNullOrWhiteSpace(issue.File))
+                    {
+                        <span class="issue-location">@ReportFormat.Location(issue)</span>
+                    }
+                </div>
+
+                <span class="issue-fix">@(issue.Suggestion ?? "None suggested.")</span>
+
+            </div>
+        }
+
+        @if (!Shown.Any())
+        {
+            <p class="empty">No issues at this severity.</p>
+        }
+    </div>
+}
+
+@code {
+    private IssueSeverity? _filter;
+
+    /// <summary>The section heading, shown beside the filter pills.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>The review's issues, in the order they are listed.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<Issue> Issues { get; set; } = [];
+
+    private IEnumerable<Issue> Shown => _filter is { } severity ? Issues.Where(i => i.Severity == severity) : Issues;
+
+    private string PillClass(IssueSeverity? severity) => severity == _filter ? "pill active" : "pill";
+}

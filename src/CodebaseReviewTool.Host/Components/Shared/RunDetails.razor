@@ -1,0 +1,90 @@
+@using CodebaseReviewTool.Core.Data.Entities
+@using CodebaseReviewTool.Core.Reporting
+
+<details class="disclosure run-details">
+    <summary>Run details</summary>
+
+    <dl class="kv run-kv">
+        @if (Run.StartedAt is { } started)
+        {
+            <dt>Started</dt>
+            <dd>@ReportFormat.Timestamp(started)</dd>
+        }
+
+        @if (Run.DurationMs is { } duration)
+        {
+            <dt>Duration</dt>
+            <dd>@ReportFormat.Duration(duration)</dd>
+        }
+
+        @if (Run.CostUsd is { } cost)
+        {
+            <dt>Cost</dt>
+            <dd class="mono">@ReportFormat.Cost(cost)</dd>
+        }
+
+        @if (Run.ExitCode is { } exitCode)
+        {
+            <dt>Exit code</dt>
+            <dd class="mono">@exitCode</dd>
+        }
+
+        @if (!string.IsNullOrEmpty(Run.AgentSessionId))
+        {
+            <dt>Session id</dt>
+            <dd class="mono">@Run.AgentSessionId</dd>
+        }
+
+        @if (!string.IsNullOrEmpty(Run.CommandLine))
+        {
+            <dt>Command</dt>
+            <dd class="mono">@Run.CommandLine</dd>
+        }
+    </dl>
+
+    <div class="run-block">
+        <span class="run-label">Prompt</span>
+        <pre class="mono-block">@Run.RenderedPrompt</pre>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Run.StdErr))
+    {
+        <div class="run-block">
+            <span class="run-label">Standard error</span>
+            <pre class="mono-block">@Run.StdErr</pre>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Run.RawOutputJson))
+    {
+        <div class="run-block">
+            <span class="run-label">Raw output</span>
+            <pre class="mono-block">@ReportFormat.PrettyJson(Run.RawOutputJson)</pre>
+        </div>
+    }
+
+    @if (CanRerun)
+    {
+        <button @onclick="OnRerun"
+                class="btn btn-secondary btn-small run-rerun"
+                type="button">
+
+            Re-run from this step
+
+        </button>
+    }
+</details>
+
+@code {
+    /// <summary>The step run whose prompt, output and figures are shown.</summary>
+    [Parameter, EditorRequired]
+    public ReviewStepRun Run { get; set; } = default!;
+
+    /// <summary>True to offer a re-run of the step; false while the review is in flight.</summary>
+    [Parameter]
+    public bool CanRerun { get; set; }
+
+    /// <summary>Raised by "Re-run from this step".</summary>
+    [Parameter]
+    public EventCallback OnRerun { get; set; }
+}

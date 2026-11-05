@@ -15,14 +15,21 @@
 
     <div class="step-card">
         <div class="step-head">
-            <h3 class="step-title">@FlowStepLabels.Title(Index)</h3>
-            @if (!string.IsNullOrEmpty(FlowStepLabels.Description(Index)))
-            {
-                <p class="step-description">@FlowStepLabels.Description(Index)</p>
-            }
+            <h3 class="step-title">@Title</h3>
         </div>
 
         <div class="step-toolbar">
+            <label class="step-field">
+                <span class="step-field-label">Name</span>
+
+                <input @bind="Draft.Name"
+                       @bind:after="NotifyChangedAsync"
+                       @bind:event="oninput"
+                       class="input step-name"
+                       maxlength="100"
+                       type="text" />
+            </label>
+
             <label class="step-field">
                 <span class="step-field-label">Model</span>
 
@@ -61,7 +68,7 @@
 
                 <button @onclick="() => _confirmingReset = true"
                         class="btn btn-link"
-                        disabled="@(Draft.IsDefault || Draft.DefaultPromptText is null)"
+                        disabled="@(Draft.IsDefault || Draft.Default is null)"
                         type="button">
 
                     Reset to default
@@ -72,13 +79,13 @@
 
         @if (!Draft.IsValid)
         {
-            <p class="step-invalid">The timeout must be between 1 and 1440 minutes, or empty for the default.</p>
+            <p class="step-invalid">The step needs a name, and the timeout must be between 1 and 1440 minutes or empty for the default.</p>
         }
 
         <textarea @bind="Draft.PromptText"
                   @bind:after="NotifyChangedAsync"
                   @bind:event="oninput"
-                  aria-label="@($"{FlowStepLabels.Title(Index)} prompt")"
+                  aria-label="@($"{Title} prompt")"
                   class="textarea"
                   rows="10"
                   spellcheck="false" />
@@ -128,10 +135,10 @@
 @if (_confirmingReset)
 {
     <Modal OnClose="() => _confirmingReset = false"
-           Title="@($"Reset {FlowStepLabels.Title(Index)} to default?")">
+           Title="@($"Reset {Title} to default?")">
 
         <ChildContent>
-            <p class="modal-text">This replaces the prompt with the one the tool ships and clears the model and timeout overrides. Nothing is saved until you choose Save changes.</p>
+            <p class="modal-text">This replaces the name and prompt with the ones the tool ships and clears the model and timeout overrides. Nothing is saved until you choose Save changes.</p>
         </ChildContent>
 
         <Footer>
@@ -159,7 +166,7 @@
 {
     <Modal Class="modal-wide"
            OnClose="() => _previewOpen = false"
-           Title="@($"Preview: {FlowStepLabels.Title(Index)}")">
+           Title="@($"Preview: {Title}")">
 
         @if (PullRequests.Count == 0)
         {
@@ -247,6 +254,9 @@
     }
 
     private IReadOnlyList<string> UnknownPlaceholders => PromptRenderer.FindUnknownPlaceholders(Draft.PromptText);
+
+    // The card title follows the name as it is typed, with a stand-in while the name is empty.
+    private string Title => string.IsNullOrWhiteSpace(Draft.Name) ? $"Step {Index + 1}" : Draft.Name.Trim();
 
     protected override void OnParametersSet()
     {

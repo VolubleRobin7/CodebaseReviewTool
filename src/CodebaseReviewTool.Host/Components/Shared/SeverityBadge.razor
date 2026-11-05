@@ -1,0 +1,10 @@
+@using CodebaseReviewTool.Core.Data.Enums
+@using CodebaseReviewTool.Core.Reporting
+
+<span class="sev @ReportFormat.SeverityClass(Severity)">@Severity</span>
+
+@code {
+    /// <summary>The severity shown, as a coloured dot and its name.</summary>
+    [Parameter, EditorRequired]
+    public IssueSeverity Severity { get; set; }
+}

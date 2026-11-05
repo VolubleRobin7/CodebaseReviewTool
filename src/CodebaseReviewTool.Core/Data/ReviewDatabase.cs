@@ -24,7 +24,8 @@ public static class ReviewDatabase
 
     /// <summary>
     /// Applies pending migrations and seeds a flow step for every shipped default prompt that has no row yet.
-    /// Existing rows are never overwritten, so the user's edits survive restarts.
+    /// Existing rows are never overwritten, so the user's edits survive restarts; the one exception is a step with
+    /// no name, which gets the shipped one.
     /// </summary>
     public static async Task MigrateAndSeedAsync(ReviewDbContext db, CancellationToken cancellationToken)
     {
@@ -32,15 +33,18 @@ public static class ReviewDatabase
 
         await db.Database.MigrateAsync(cancellationToken);
 
-        var existing = await db.FlowSteps.Select(f => f.Step).ToListAsync(cancellationToken);
-        var missing = DefaultPrompts.Steps.Except(existing).ToList();
-        if (missing.Count == 0)
+        var now = DateTime.UtcNow;
+        var existing = await db.FlowSteps.ToListAsync(cancellationToken);
+
+        foreach (var step in existing.Where(s => string.IsNullOrWhiteSpace(s.Name)))
         {
-            return;
+            step.Name = DefaultPrompts.For(step.Step)?.Name ?? $"Step {step.Step + 1}";
+            step.UpdatedAt = now;
         }
 
-        var now = DateTime.UtcNow;
-        db.FlowSteps.AddRange(missing.Select(step => new FlowStep { Step = step, PromptText = DefaultPrompts.For(step)!, UpdatedAt = now }));
+        var missing = DefaultPrompts.Steps.Except(existing.Select(s => s.Step)).Select(step => DefaultPrompts.For(step)!);
+        db.FlowSteps.AddRange(missing.Select(d => new FlowStep { Step = d.Step, Name = d.Name, PromptText = d.Text, UpdatedAt = now }));
+
         await db.SaveChangesAsync(cancellationToken);
     }
 }

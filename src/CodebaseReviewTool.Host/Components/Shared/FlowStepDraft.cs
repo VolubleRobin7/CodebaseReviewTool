@@ -17,6 +17,7 @@ public sealed class FlowStepDraft
         ArgumentNullException.ThrowIfNull(step);
 
         Step = step.Step;
+        Name = step.Name;
         _promptText = Normalise(step.PromptText);
         _model = step.Model;
         TimeoutMinutes = step.TimeoutMinutes;
@@ -24,6 +25,9 @@ public sealed class FlowStepDraft
     }
 
     public int Step { get; }
+
+    /// <summary>The step's name, as its card and its report section are headed.</summary>
+    public string Name { get; set; }
 
     /// <summary>The prompt as edited; line endings are kept as LF, as stored.</summary>
     public string PromptText
@@ -41,31 +45,35 @@ public sealed class FlowStepDraft
 
     public int? TimeoutMinutes { get; set; }
 
+    public string SavedName { get; private set; } = string.Empty;
+
     public string SavedPromptText { get; private set; } = string.Empty;
 
     public string? SavedModel { get; private set; }
 
     public int? SavedTimeoutMinutes { get; private set; }
 
-    /// <summary>The prompt the tool ships for this step, or null when it ships none.</summary>
-    public string? DefaultPromptText => DefaultPrompts.For(Step);
+    /// <summary>The name and prompt the tool ships for this step, or null when it ships none.</summary>
+    public DefaultPrompt? Default => DefaultPrompts.For(Step);
 
     /// <summary>True when the card differs from what is saved.</summary>
     public bool IsEdited =>
-        PromptText != SavedPromptText || Model != SavedModel || TimeoutMinutes != SavedTimeoutMinutes;
+        Name != SavedName || PromptText != SavedPromptText || Model != SavedModel || TimeoutMinutes != SavedTimeoutMinutes;
 
-    /// <summary>True when the card holds the shipped prompt with no model or timeout override.</summary>
-    public bool IsDefault => DefaultPromptText is { } prompt && PromptText == prompt && Model is null && TimeoutMinutes is null;
+    /// <summary>True when the card holds the shipped name and prompt with no model or timeout override.</summary>
+    public bool IsDefault =>
+        Default is { } shipped && Name == shipped.Name && PromptText == shipped.Text && Model is null && TimeoutMinutes is null;
 
-    /// <summary>True when the timeout is empty or a whole number of minutes in the accepted range.</summary>
-    public bool IsValid => TimeoutMinutes is null or (>= 1 and <= 1440);
+    /// <summary>True when the name is present and the timeout is empty or a whole number of minutes in the accepted range.</summary>
+    public bool IsValid => !string.IsNullOrWhiteSpace(Name) && TimeoutMinutes is null or (>= 1 and <= 1440);
 
-    /// <summary>Restores the shipped prompt and clears the model and timeout overrides.</summary>
+    /// <summary>Restores the shipped name and prompt and clears the model and timeout overrides.</summary>
     public void ResetToDefault()
     {
-        if (DefaultPromptText is { } prompt)
+        if (Default is { } shipped)
         {
-            PromptText = prompt;
+            Name = shipped.Name;
+            PromptText = shipped.Text;
             Model = null;
             TimeoutMinutes = null;
         }
@@ -76,6 +84,7 @@ public sealed class FlowStepDraft
     {
         ArgumentNullException.ThrowIfNull(step);
 
+        step.Name = Name.Trim();
         step.PromptText = PromptText;
         step.Model = Model;
         step.TimeoutMinutes = TimeoutMinutes;
@@ -84,6 +93,7 @@ public sealed class FlowStepDraft
     /// <summary>Records the current values as the saved ones.</summary>
     public void MarkSaved()
     {
+        SavedName = Name;
         SavedPromptText = PromptText;
         SavedModel = Model;
         SavedTimeoutMinutes = TimeoutMinutes;

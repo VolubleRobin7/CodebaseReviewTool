@@ -6,6 +6,9 @@ public class FlowStep
     /// <summary>Primary key and sequence number, starting at 0.</summary>
     public int Step { get; set; }
 
+    /// <summary>Shown as the step's card title and as its section heading on the report. Seeded from the shipped default.</summary>
+    public string Name { get; set; } = string.Empty;
+
     /// <summary>Prompt text with placeholders; a leading <c>/skill-name</c> invokes an agent skill. Seeded from the shipped default.</summary>
     public string PromptText { get; set; } = string.Empty;
 

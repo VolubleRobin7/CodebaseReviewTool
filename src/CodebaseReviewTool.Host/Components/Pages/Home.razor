@@ -64,6 +64,7 @@
                             Error="@_rowErrors.GetValueOrDefault(item.Key)"
                             IsStarting="@_starting.Contains(item.Key)"
                             Item="item"
+                            OnReviewAgain="() => _reviewAgain = item"
                             OnStart="() => StartReviewAsync(item)" />
     }
 </section>
@@ -89,9 +90,40 @@
                             Error="@_rowErrors.GetValueOrDefault(item.Key)"
                             IsStarting="@_starting.Contains(item.Key)"
                             Item="item"
+                            OnReviewAgain="() => _reviewAgain = item"
                             OnStart="() => StartReviewAsync(item)" />
     }
 </section>
+
+@if (_reviewAgain is { } again)
+{
+    <Modal OnClose="() => _reviewAgain = null"
+           Title="@($"Review #{again.PullRequest.Id} again?")">
+
+        <ChildContent>
+            <p class="modal-text">This starts a new review of the pull request's latest commit and runs every step again. The current report stays in the pull request's review history.</p>
+        </ChildContent>
+
+        <Footer>
+            <button @onclick="() => _reviewAgain = null"
+                    class="btn btn-secondary"
+                    type="button">
+
+                Cancel
+
+            </button>
+
+            <button @onclick="() => ReviewAgainAsync(again)"
+                    class="btn btn-primary"
+                    type="button">
+
+                Start review
+
+            </button>
+        </Footer>
+
+    </Modal>
+}
 
 @code {
     // Re-renders between polls so "Updated N minutes ago" stays true.
@@ -104,6 +136,7 @@
     private List<PullRequestListItem> _reviewed = [];
     private List<PullRequestListItem> _open = [];
     private Timer? _clock;
+    private PullRequestListItem? _reviewAgain;
 
     private string? PollError => PollStatus.IsEnabled ? PollStatus.LastError : null;
 
@@ -209,6 +242,12 @@
         _open = [.. _items
             .Where(i => i.LatestReview is null)
             .OrderByDescending(i => i.PullRequest.CreatedAt)];
+    }
+
+    private Task ReviewAgainAsync(PullRequestListItem item)
+    {
+        _reviewAgain = null;
+        return StartReviewAsync(item);
     }
 
     private async Task StartReviewAsync(PullRequestListItem item)

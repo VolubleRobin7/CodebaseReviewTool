@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>body{margin:0;font-family:system-ui}</style>
+<script>
+// The frame around this document is sandboxed without same-origin access, so the page cannot measure it. This reports
+// the body's height to the page after load, on every resize of the body (diagram libraries usually draw after load),
+// and again at one and three seconds for anything that draws later still, each time only when the height changed.
+(function () {
+    var last = -1;
+
+    function send() {
+        var body = document.body;
+        if (!body) {
+            return;
+        }
+
+        var height = Math.ceil(Math.max(body.scrollHeight, body.offsetHeight));
+        if (height !== last) {
+            last = height;
+            parent.postMessage({ type: "diagram-height", height: height }, "*");
+        }
+    }
+
+    window.addEventListener("load", function () {
+        send();
+        if (window.ResizeObserver) {
+            new ResizeObserver(send).observe(document.body);
+        }
+
+        setTimeout(send, 1000);
+        setTimeout(send, 3000);
+    });
+})();
+</script>
+</head>
+<body>{{EXCERPT}}</body>
+</html>

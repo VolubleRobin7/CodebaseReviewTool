@@ -1,0 +1,82 @@
+@using CodebaseReviewTool.Core.Data.Entities
+@using CodebaseReviewTool.Core.Data.Enums
+@using CodebaseReviewTool.Core.Reporting
+
+@switch (Run?.State)
+{
+    case StepRunState.Succeeded:
+        @ChildContent
+        break;
+
+    case StepRunState.Failed:
+        <div class="report-failure">
+            <p class="report-failure-title">@Title failed.</p>
+            <pre class="mono-block report-failure-error">@Run!.Error</pre>
+
+            <button @onclick="RerunAsync"
+                    class="btn btn-secondary report-failure-action"
+                    disabled="@(!CanRerun)"
+                    type="button">
+
+                Re-run
+
+            </button>
+        </div>
+        break;
+
+    case StepRunState.Running:
+    case StepRunState.Pending:
+        <p class="report-progress">
+            <span class="spinner" />
+            <span>Running step @(Index + 1) of @Report.FlowSteps.Count…</span>
+        </p>
+        break;
+
+    default:
+        <p class="empty">@WaitingText</p>
+        break;
+}
+
+@if (Run is not null)
+{
+    <RunDetails CanRerun="@(CanRerun && Run.State == StepRunState.Succeeded)"
+                OnRerun="RerunAsync"
+                Run="Run" />
+}
+
+@code {
+    /// <summary>The report the step belongs to.</summary>
+    [Parameter, EditorRequired]
+    public ReportData Report { get; set; } = default!;
+
+    /// <summary>The step's 0-based position in the flow.</summary>
+    [Parameter]
+    public int Index { get; set; }
+
+    /// <summary>False while the review is in flight or a re-run request is being made.</summary>
+    [Parameter]
+    public bool CanRerun { get; set; }
+
+    /// <summary>The step's output, shown once it has succeeded.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Raised with the step's position by "Re-run" on a failed step and "Re-run from this step".</summary>
+    [Parameter]
+    public EventCallback<int> OnRerun { get; set; }
+
+    private ReviewStepRun? Run => Report.RunAt(Index);
+
+    private string Title => Report.SectionTitle(Index);
+
+    private string WaitingText => Report.State switch
+    {
+        ReviewState.Queued => "Waiting for the review to start.",
+        ReviewState.PreparingWorktree => "Waiting for the worktree to be prepared.",
+        ReviewState.Running => $"Waiting for step {Index + 1} of {Report.FlowSteps.Count}.",
+        ReviewState.Failed => "Not run: the review stopped before this step.",
+        _ => "This step was not part of the flow when the review ran.",
+    };
+
+    private Task RerunAsync() => OnRerun.InvokeAsync(Index);
+}

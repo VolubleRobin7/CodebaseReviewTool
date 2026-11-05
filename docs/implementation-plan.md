@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 4 complete (agent runner, flow step editor, orchestration). Phases 5+ not started.
+Status: Phase 5 complete (report page, review history, download). Phases 6+ not started.
 
 ---
 
@@ -104,11 +104,11 @@ references Blazor, ASP.NET Core or WinForms, so the target is plain `net10.0`.
 | `Data/` | `ReviewDbContext`, entity classes (§5), EF migrations, `ReviewDbContextFactory` | SQLite storage. Blazor Server circuits and background services both need their own short-lived contexts, so consumers use `IDbContextFactory<ReviewDbContext>` rather than a scoped context. |
 | `Processes/` | `IProcessRunner`, `ProcessRunner`, `ProcessResult` | The only place an external process is started. Handles working directory, stdin writing, stdout/stderr capture, timeout with process-tree kill, and environment sanitisation (dropping `CLAUDECODE`). Git and Claude both go through it. |
 | `Git/` | `GitRunner`, `RepositoryResolver`, `WorktreeService`, `WorktreeInfo` | `GitRunner` runs `git <args>` in a directory via `IProcessRunner`. `RepositoryResolver` turns each configured `LocalPath` into a resolved repository (remote name, organisation, project, repository, key) by reading and parsing its remote URL at startup. `WorktreeService` does the review-specific work: fetch, add a detached worktree at a commit, merge-base, changed-file list, remove + prune, path naming under `WorktreeRoot`, and the Windows removal failure handling. |
-| `Prompts/` | `DefaultPrompts`, `PromptRenderer`, `IssuesSchema`, `Defaults/*.txt` | Agent-neutral prompt handling. `DefaultPrompts` reads the shipped prompt for each step from the embedded `Prompts/Defaults/<step>-*.txt` resources. `PromptRenderer` substitutes the §6.1 placeholders. `IssuesSchema` holds the fixed schema text and the instruction appended to the last step. Nothing here names a particular AI tool, and the shipped prompts avoid wording specific to one. |
+| `Prompts/` | `DefaultPrompts`, `PromptRenderer`, `IssuesSchema`, `Defaults/*.txt` | Agent-neutral prompt handling. `DefaultPrompts` reads the shipped prompt for each step from the embedded `Prompts/Defaults/<step>-<name>.txt` resources, whose file name also gives the step its name. `PromptRenderer` substitutes the §6.1 placeholders. `IssuesSchema` holds the fixed schema text and the instruction appended to the last step. Nothing here names a particular AI tool, and the shipped prompts avoid wording specific to one. |
 | `Agents/` | `IAgentRunner`, `AgentResult`, `ClaudeCodeRunner` | The boundary to whichever AI tool runs a step. `IAgentRunner` takes a rendered prompt, a working directory, an optional model, timeout and optional JSON schema and returns an `AgentResult` (text, structured output, session id, cost, raw output, error). `ClaudeCodeRunner` is the only implementation for now: it builds the command line in §6.2, feeds the prompt through stdin and parses the CLI's result JSON. Another tool means another implementation, selected in `AddReviewCore`. |
 | `DevOps/` | `IDevOpsClient`, `DevOpsClient`, REST DTOs, `PullRequestCache` | REST calls to Azure DevOps with PAT basic auth (list active PRs for a repo, get one PR, "who am I" for the Settings check). `PullRequestCache` merges polled results into the `PullRequest` table and flags PRs that have closed. |
 | `Reviews/` | `ReviewQueue`, `ReviewOrchestrator`, `IssuesParser`, `ReviewEvents` | `ReviewQueue` is a `Channel<int>` of review ids. `ReviewOrchestrator` runs one review: status machine in §2, worktree creation, the flow steps in ascending order, one `ReviewStepRun` row per step, issues parsing for the last step, stop on first failure, re-run from a given step reusing the worktree. `ReviewEvents` is an in-process pub/sub (review or step changed) that the UI and the tray subscribe to. |
-| `Reporting/` | `ReportBuilder` | Renders a completed review to a standalone HTML string (summary, diagram inlined as an iframe `srcdoc`, issues table) for the Download button. |
+| `Reporting/` | `ReportData`, `ReportDataLoader`, `ReportBuilder`, `DiagramDocument`, `ReportFormat`, `Templates/` | `ReportData` is what one review's report shows (summary paragraphs, diagram HTML, sorted issues, section headings from the flow step names, the PR's review history) and `ReportDataLoader` reads it. The report page renders it with Razor; `ReportBuilder` renders the same data to a standalone HTML string for the Download button. `DiagramDocument` wraps the diagram excerpt in the §6.4 `srcdoc` document. The wrapper, the download's stylesheet and its script are embedded files under `Templates/`. |
 | `Hosting/` | `DevOpsPollService`, `ReviewQueueService`, `WorktreeCleanupService` | The three `BackgroundService` classes. They live here, not in Host, because they are behaviour; Host only registers them. |
 | root | `ServiceCollectionExtensions.AddReviewCore(IConfiguration)` | One call that registers options, the DbContext factory, HttpClient for DevOps, every service above and the three hosted services. |
 
@@ -222,7 +222,7 @@ The stable id used in worktree paths and the database (`RepositoryKey`) is a slu
 
 | Entity | Purpose | Key fields |
 |---|---|---|
-| `FlowStep` | The global flow. Seeded with three rows; the schema allows any number. | `Step` (int PK, the sequence, starting at 0: 0 = Summary, 1 = Diagram, 2 = Issues), `PromptText`, `Model?`, `TimeoutMinutes?`, `UpdatedAt` |
+| `FlowStep` | The global flow. Seeded with three rows; the schema allows any number. | `Step` (int PK, the sequence, starting at 0; a step's output is read by position: 0 = summary text, 1 = diagram HTML, last = issues JSON), `Name` (editable; the card title and report heading), `PromptText`, `Model?`, `TimeoutMinutes?`, `UpdatedAt` |
 | `PullRequest` | Cache of DevOps PR metadata. | `Id` (DevOps PR id), `RepositoryKey`, `Title`, `Description`, `AuthorName`, `SourceBranch`, `TargetBranch`, `SourceCommit`, `Status`, `CreatedAt`, `Url`, `LastSeenAt`, `IsOpen` |
 | `Review` | One review run of one PR. | `Id`, `PullRequestId`, `RepositoryKey`, `SourceCommit`, `MergeBaseCommit`, `Status`, `WorktreePath`, `WorktreeRemovedAt?`, `QueuedAt`, `StartedAt?`, `CompletedAt?`, `Error?` |
 | `ReviewStepRun` | One Claude run inside a review. | `Id`, `ReviewId`, `Step` (matches `FlowStep.Step`), `RenderedPrompt`, `CommandLine`, `RawOutputJson`, `ResultText`, `StdErr`, `ExitCode?`, `AgentSessionId?`, `DurationMs?`, `CostUsd?`, `StartedAt?`, `CompletedAt?`, `Error?` |
@@ -468,8 +468,10 @@ Goal: the report is readable and the mockup is matched.
   (plain text paragraphs), an Architecture section (sandboxed iframe §6.4) and an Issues
   section with severity filter pills (All and one per severity) over a Severity /
   Description / Suggested fix grid, the file and line shown in mono under the
-  description. Beyond the mockup: a collapsible "Run details" per step showing the
-  rendered prompt, stderr and the raw JSON, and a link to the PR in DevOps.
+  description. Section headings are the flow steps' stored names. Beyond the mockup: a
+  collapsible "Run details" per step showing the rendered prompt, stderr and the raw
+  JSON, with "Re-run from this step"; a link to the PR in DevOps; and a confirmation
+  before "Review again" and every re-run.
 - Failed step shows its error and a Re-run button in place of the section.
 - "Download report" produces a standalone HTML file via `ReportBuilder` (same template,
   diagram inlined into the iframe `srcdoc`).

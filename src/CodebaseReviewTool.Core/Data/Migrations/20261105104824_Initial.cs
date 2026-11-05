@@ -16,6 +16,7 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                 columns: table => new
                 {
                     Step = table.Column<int>(type: "INTEGER", nullable: false),
+                    Name = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
                     PromptText = table.Column<string>(type: "TEXT", nullable: false),
                     Model = table.Column<string>(type: "TEXT", nullable: true),
                     TimeoutMinutes = table.Column<int>(type: "INTEGER", nullable: true),

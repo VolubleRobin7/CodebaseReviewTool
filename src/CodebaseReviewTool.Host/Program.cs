@@ -33,6 +33,7 @@ app.UseAntiforgery();
 
 app.MapStaticAssets();
 app.MapHealthApi();
+app.MapReportApi();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

@@ -25,6 +25,11 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                     b.Property<string>("Model")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("PromptText")
                         .IsRequired()
                         .HasColumnType("TEXT");

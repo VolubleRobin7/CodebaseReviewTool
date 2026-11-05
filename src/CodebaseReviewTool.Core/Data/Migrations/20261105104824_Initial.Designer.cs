@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CodebaseReviewTool.Core.Data.Migrations
 {
     [DbContext(typeof(ReviewDbContext))]
-    [Migration("20261104054847_Initial")]
+    [Migration("20261105104824_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -26,6 +26,11 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Model")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PromptText")

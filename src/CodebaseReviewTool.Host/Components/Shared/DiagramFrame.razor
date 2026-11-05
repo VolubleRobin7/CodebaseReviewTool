@@ -1,0 +1,29 @@
+@using CodebaseReviewTool.Core.Reporting
+
+<iframe class="diagram-frame"
+        sandbox="allow-scripts"
+        srcdoc="@_document"
+        title="Architecture diagram" />
+
+@code {
+    private string _html = string.Empty;
+    private string _document = string.Empty;
+
+    /// <summary>
+    /// The diagram step's HTML excerpt. It is shown in a frame sandboxed with scripts but not same-origin, so it may
+    /// load and run its own scripts but cannot reach this page; diagram-frame.js sizes the frame from the height the
+    /// wrapper document posts.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public string Html { get; set; } = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        // Wrapped once per excerpt, so a re-render with the same diagram leaves srcdoc, and the loaded frame, alone.
+        if (_html != Html || _document.Length == 0)
+        {
+            _html = Html;
+            _document = DiagramDocument.Wrap(Html);
+        }
+    }
+}

@@ -58,7 +58,7 @@
 
                 </a>
 
-                <button @onclick="OnStart"
+                <button @onclick="OnReviewAgain"
                         class="btn btn-link"
                         disabled="@IsStarting"
                         type="button">
@@ -69,7 +69,13 @@
                 break;
 
             case ReviewState.Failed:
-                <span class="pr-failed">Review failed</span>
+                <a class="pr-failed"
+                   href="reviews/@Item.LatestReview!.Id"
+                   title="View the failed review">
+
+                    Review failed
+
+                </a>
 
                 <button @onclick="OnStart"
                         class="btn btn-secondary"
@@ -104,12 +110,17 @@
     [Parameter]
     public bool IsStarting { get; set; }
 
-    /// <summary>Raised by "Start review", "Review again" and "Retry".</summary>
+    /// <summary>Raised by "Start review" and "Retry".</summary>
     [Parameter]
     public EventCallback OnStart { get; set; }
 
+    /// <summary>Raised by "Review again", which the page confirms before starting a new review.</summary>
+    [Parameter]
+    public EventCallback OnReviewAgain { get; set; }
+
     private string StatusText => Item switch
     {
+        { State: ReviewState.Queued } => "Queued…",
         { State: ReviewState.PreparingWorktree } => "Preparing worktree…",
         { CurrentStepNumber: { } number } => $"Reviewing… step {number} of {Item.FlowSteps.Count}",
         _ => "Reviewing…",
