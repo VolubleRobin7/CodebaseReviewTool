@@ -2,14 +2,53 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <!-- Stays Exe until Phase 6 switches to WinExe and adds the tray (UseWindowsForms). -->
-    <OutputType>Exe</OutputType>
+    <!-- No console window: the app lives in the tray. Program allocates a console when the tray is off or a console is asked for on the command line. -->
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- One icon for the exe, the tray and the browser tab. -->
+    <ApplicationIcon>wwwroot\favicon.ico</ApplicationIcon>
     <UserSecretsId>7d3c5b2e-8f41-4a6c-9e0d-2b6f1c4a8e53</UserSecretsId>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- WinForms is only used by the tray code, which imports it explicitly; keep its names out of the Razor components. -->
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The tray reads the icon from the assembly, so it needs no file beside the exe. -->
+    <EmbeddedResource Include="wwwroot\favicon.ico" LogicalName="CodebaseReviewTool.Host.app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CodebaseReviewTool.Core\CodebaseReviewTool.Core.csproj" />
   </ItemGroup>
+
+  <!--
+    The framework package only adds blazor.web.js as a static web asset when OutputType is Exe, and its target's
+    condition is checked before any BeforeTargets run. So the project reads as Exe from the start of static web asset
+    input resolution (this list is extended by the package after this file, so this target runs first) until that
+    target has run, then switches back so the app host is still built as a Windows application.
+  -->
+  <PropertyGroup>
+    <ResolveStaticWebAssetsInputsDependsOn>
+      PresentAsExeForBlazorFrameworkAssets;
+      $(ResolveStaticWebAssetsInputsDependsOn)
+    </ResolveStaticWebAssetsInputsDependsOn>
+  </PropertyGroup>
+
+  <Target Name="PresentAsExeForBlazorFrameworkAssets">
+    <PropertyGroup>
+      <OutputType>Exe</OutputType>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="RestoreWinExeAfterBlazorFrameworkAssets" AfterTargets="_AddBlazorFrameworkStaticWebAssets">
+    <PropertyGroup>
+      <OutputType>WinExe</OutputType>
+    </PropertyGroup>
+  </Target>
 
 </Project>

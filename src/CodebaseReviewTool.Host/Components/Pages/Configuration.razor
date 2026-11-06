@@ -3,12 +3,16 @@
 @using CodebaseReviewTool.Core.Data.Entities
 @using CodebaseReviewTool.Core.DevOps
 @using CodebaseReviewTool.Core.Git
+@using CodebaseReviewTool.Core.Hosting
 @using CodebaseReviewTool.Core.Processes
 @using CodebaseReviewTool.Host.Components.Shared
+@using CodebaseReviewTool.Host.Tray
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.Extensions.Options
 
 @rendermode InteractiveServer
+
+@implements IDisposable
 
 @inject IOptions<ClaudeOptions> ClaudeOptions
 @inject IOptions<DatabaseOptions> DatabaseOptions
@@ -17,9 +21,11 @@
 @inject IOptions<DevOpsOptions> DevOpsOptions
 @inject IOptions<GitOptions> GitOptions
 @inject GitRunner GitRunner
+@inject IPollPause PollPause
 @inject IProcessRunner ProcessRunner
 @inject IRepositoryRegistry RepositoryRegistry
 @inject IOptions<ReviewOptions> ReviewOptions
+@inject StartupShortcut StartupShortcut
 @inject IOptions<TrayOptions> TrayOptions
 
 @page "/configuration"
@@ -187,9 +193,65 @@
 
 <section class="section">
     <div class="section-head">
+        <h2 class="section-title">Tray</h2>
+    </div>
+    <p class="section-note">The tray icon opens this UI, shows how many reviews are running and announces each one that finishes.</p>
+
+    @if (_trayError is not null)
+    {
+        <p class="step-invalid">@_trayError</p>
+    }
+
+    <div class="rows">
+        <div class="row check-row">
+            <span>Run at login</span>
+
+            <span>
+                <span class="@(_runAtLogin ? "check-passed check-state" : "check-state faint")">@(_runAtLogin ? "On" : "Off")</span>
+                <span class="row-detail">@StartupShortcut.ShortcutPath</span>
+            </span>
+
+            <span class="check-action">
+                <button @onclick="ToggleRunAtLoginAsync"
+                        class="btn btn-link"
+                        disabled="@_changingRunAtLogin"
+                        type="button">
+
+                    @(_runAtLogin ? "Turn off" : "Turn on")
+
+                </button>
+            </span>
+        </div>
+
+        <div class="row check-row">
+            <span>DevOps polling</span>
+
+            <span>
+                <span class="@(PollPause.IsPaused ? "check-running check-state" : "check-passed check-state")">@(PollPause.IsPaused ? "Paused" : "Running")</span>
+                <span class="row-detail">While paused only a manual refresh of the pull request list polls. Resets on restart.</span>
+            </span>
+
+            <span class="check-action">
+                <button @onclick="() => PollPause.SetPaused(!PollPause.IsPaused)"
+                        class="btn btn-link"
+                        type="button">
+
+                    @(PollPause.IsPaused ? "Resume" : "Pause")
+
+                </button>
+            </span>
+
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
         <h2 class="section-title">Environment</h2>
     </div>
+
     <p class="section-note">Read from appsettings.json and user-secrets; edit those files and restart to change it.</p>
+
     <dl class="kv">
         <dt>Database</dt>
         <dd class="mono">@DatabaseOptions.Value.Path</dd>
@@ -244,6 +306,9 @@
     private List<PullRequest> _pullRequests = [];
     private bool _saving;
     private string? _saveError;
+    private bool _runAtLogin;
+    private bool _changingRunAtLogin;
+    private string? _trayError;
 
     private bool AnyRunning => _checks.Any(c => c.IsRunning);
 
@@ -268,6 +333,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _runAtLogin = StartupShortcut.IsEnabled;
+        PollPause.Changed += OnPollPauseChanged;
+
         _checks.Add(new Check("Claude", CheckClaudeAsync));
         _checks.Add(new Check("git", CheckGitAsync));
         _checks.Add(new Check("DevOps", CheckDevOpsAsync));
@@ -332,6 +400,36 @@
         finally
         {
             _saving = false;
+        }
+    }
+
+    public void Dispose() => PollPause.Changed -= OnPollPauseChanged;
+
+    // The tray menu can pause polling too; the event arrives on its thread.
+    private void OnPollPauseChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task ToggleRunAtLoginAsync()
+    {
+        if (_changingRunAtLogin)
+        {
+            return;
+        }
+
+        _changingRunAtLogin = true;
+        _trayError = null;
+        try
+        {
+            var enable = !_runAtLogin;
+            await Task.Run(() => StartupShortcut.SetEnabled(enable));
+        }
+        catch (Exception ex)
+        {
+            _trayError = $"Changing run at login failed: {ex.Message}";
+        }
+        finally
+        {
+            _runAtLogin = StartupShortcut.IsEnabled;
+            _changingRunAtLogin = false;
         }
     }
 

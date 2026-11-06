@@ -11,8 +11,9 @@ namespace CodebaseReviewTool.Core.Hosting;
 
 /// <summary>
 /// Keeps the pull request cache current: polls every configured repository once at startup, then every
-/// <c>DevOps:PollIntervalSeconds</c> or sooner when <see cref="IPollTrigger.RequestPoll"/> asks for one. Read-only
-/// towards DevOps. A failing repository is logged and recorded on
+/// <c>DevOps:PollIntervalSeconds</c> or sooner when <see cref="IPollTrigger.RequestPoll"/> asks for one. While
+/// <see cref="IPollPause"/> is paused the scheduled polls are skipped and only requested ones run. Read-only towards
+/// DevOps. A failing repository is logged and recorded on
 /// <see cref="IPollStatus"/> and the cache keeps its last contents; it never stops the other repositories or the
 /// service. Never starts a review.
 /// </summary>
@@ -22,6 +23,7 @@ public sealed class DevOpsPollService(
     PullRequestCache cache,
     PollStatus status,
     PollTrigger trigger,
+    IPollPause pause,
     IOptions<DevOpsOptions> options,
     ILogger<DevOpsPollService> logger) : BackgroundService
 {
@@ -30,6 +32,7 @@ public sealed class DevOpsPollService(
     private readonly PullRequestCache _cache = cache;
     private readonly PollStatus _status = status;
     private readonly PollTrigger _trigger = trigger;
+    private readonly IPollPause _pause = pause;
     private readonly DevOpsOptions _options = options.Value;
     private readonly ILogger<DevOpsPollService> _logger = logger;
 
@@ -51,11 +54,20 @@ public sealed class DevOpsPollService(
         await Task.Yield();
 
         var interval = TimeSpan.FromSeconds(_options.PollIntervalSeconds);
-        do
+        var wake = PollWake.Requested;
+        while (wake != PollWake.Stopping)
         {
-            await PollAsync(stoppingToken);
+            if (wake == PollWake.Requested || !_pause.IsPaused)
+            {
+                await PollAsync(stoppingToken);
+            }
+            else
+            {
+                _logger.LogDebug("Scheduled poll skipped: polling is paused");
+            }
+
+            wake = await WaitForNextPollAsync(interval, stoppingToken);
         }
-        while (await WaitForNextPollAsync(interval, stoppingToken));
     }
 
     private async Task PollAsync(CancellationToken cancellationToken)
@@ -108,17 +120,28 @@ public sealed class DevOpsPollService(
         _logger.LogWarning("Polling {RepositoryKey} failed; keeping the cached pull requests. {Error}", repository.Key, error);
     }
 
-    /// <summary>Waits for the interval or an earlier request; false only when the host is stopping.</summary>
-    private async Task<bool> WaitForNextPollAsync(TimeSpan interval, CancellationToken cancellationToken)
+    /// <summary>Waits for the interval or an earlier request and says which ended the wait.</summary>
+    private async Task<PollWake> WaitForNextPollAsync(TimeSpan interval, CancellationToken cancellationToken)
     {
         try
         {
-            await _trigger.WaitAsync(interval, cancellationToken);
-            return true;
+            return await _trigger.WaitAsync(interval, cancellationToken) ? PollWake.Requested : PollWake.Scheduled;
         }
         catch (OperationCanceledException)
         {
-            return false;
+            return PollWake.Stopping;
         }
+    }
+
+    private enum PollWake
+    {
+        /// <summary>The interval elapsed.</summary>
+        Scheduled,
+
+        /// <summary>A poll was asked for, or it is the first poll; either runs even while paused.</summary>
+        Requested,
+
+        /// <summary>The host is stopping.</summary>
+        Stopping,
     }
 }

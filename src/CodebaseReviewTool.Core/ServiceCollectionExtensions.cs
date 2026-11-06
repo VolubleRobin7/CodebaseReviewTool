@@ -54,6 +54,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPollStatus>(sp => sp.GetRequiredService<PollStatus>());
         services.AddSingleton<PollTrigger>();
         services.AddSingleton<IPollTrigger>(sp => sp.GetRequiredService<PollTrigger>());
+        services.AddSingleton<IPollPause, PollPause>();
         services.AddSingleton<ReviewQueue>();
         services.AddSingleton<ReviewService>();
 

@@ -1,1 +1,17 @@
-{"version":"0.0.1","configurations":[{"name":"host","runtimeExecutable":"dotnet","runtimeArgs":["run","--project","src/CodebaseReviewTool.Host"],"port":5210}]}
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "host",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/CodebaseReviewTool.Host"],
+      "port": 5210
+    },
+    {
+      "name": "tray",
+      "runtimeExecutable": "src/CodebaseReviewTool.Host/bin/Debug/net10.0-windows/CodebaseReviewTool.Host.exe",
+      "runtimeArgs": [],
+      "port": 5210
+    }
+  ]
+}

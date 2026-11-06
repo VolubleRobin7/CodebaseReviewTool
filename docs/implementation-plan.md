@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 5 complete (report page, review history, download). Phases 6+ not started.
+Status: Phase 6 complete (tray, single instance, run at login). Phase 7 not started.
 
 ---
 
@@ -123,12 +123,12 @@ and the only one with an entry point.
 
 | Folder | Contents | Responsibility |
 |---|---|---|
-| `Program.cs` | | Builds the `WebApplication`, calls `AddReviewCore`, maps Razor components and the API, applies pending migrations, then starts Kestrel on a background thread and runs the tray message loop on the main STA thread. With `Tray:Enabled=false` (or `--console`) it blocks on the web host instead, which is how it runs under `dotnet run` and Claude Code's preview. |
+| `Program.cs`, `AppRunner.cs` | | `Program` reads configuration, takes the single-instance mutex, builds the `WebApplication` (`AddReviewCore`, Razor components, the API) and picks a mode. `AppRunner` runs it: in tray mode Kestrel starts in the background and the main STA thread runs the tray message loop, then the host is stopped and waited for; with `Tray:Enabled=false` (or `--console`) it blocks on the web host instead, which is how it runs under `dotnet run` and Claude Code's preview. Startup failures are reported as a plain list, on the console or in a message box. |
 | `Api/` | `HealthEndpoints.cs` (`MapHealthApi`) | Minimal API endpoint groups, one file per group. Only `/api/health` exists now; the growth path for the API is adding files here that call Core services. |
 | `Components/Layout/` | `MainLayout`, `NavMenu`, `ReconnectModal` (template default, kept as is) | The mockup's header: brand, "Pull requests" nav link, theme toggle and the gear that opens Configuration. |
 | `Components/Pages/` | `Home` (`/`, the pull request list), `ReviewReport` (`/reviews/{id}`), `Configuration` (`/configuration`: flow steps, checks, repositories, environment), `Worktrees` (`/worktrees`, linked from Configuration) | One page per screen (§10). Pages inject Core services directly; there is no HTTP hop between UI and service because they share a process. Pages subscribe to `ReviewEvents` for live status and call `InvokeAsync(StateHasChanged)`. |
 | `Components/Shared/` | `IssuesTable`, `DiagramFrame`, `SeverityBadge`, `PlaceholderReference`, `RunDetails`, `StepEditor` | Reusable pieces of the report and configuration pages. `DiagramFrame` owns the sandboxed iframe and the height `postMessage` handshake. |
-| `Tray/` | `TrayApplicationContext`, `StartupShortcut`, `SingleInstance` | NotifyIcon with context menu, open-browser action, balloon notifications from `ReviewEvents`, the Startup-folder shortcut toggle, and the named mutex that makes a second launch just open the browser. |
+| `Tray/` | `TrayApplicationContext`, `StartupShortcut`, `SingleInstance`, `AppIcon`, `AppUrl`, `Browser`, `ConsoleWindow` | NotifyIcon with context menu, open-browser action, balloon notifications from `ReviewEvents`, the Startup-folder shortcut toggle, the named mutex that makes a second launch just open the browser, and small helpers for the icon (one `wwwroot/favicon.ico` serves as exe icon, tray icon and favicon), the app URL, launching the browser and attaching a console. |
 | `wwwroot/` | `app.css`, `theme.js`, `diagram-frame.js` | Design tokens and components from the mockup (§10); the theme script that applies the saved light/dark choice before paint; the few lines of JS for iframe height. System fonts only, so nothing loads from the internet and no font files ship. |
 | `appsettings.json`, `appsettings.Development.json` | | Committed configuration with placeholder values only. Machine-specific values (PAT, organisation URL, worktree root, repositories) live in user-secrets; the id is set in the csproj. |
 | `Properties/launchSettings.json` | | Single `http` profile on port 5210, Development environment. No https profile: the app is loopback-only. |
@@ -488,7 +488,7 @@ Goal: the tool behaves like a resident Windows app.
 - `OutputType` -> `WinExe`; `Tray:Enabled=false` or `--console` keeps a console for
   development.
 - `TrayApplicationContext` on the main STA thread: icon with menu (Open UI, running
-  count, Pause polling, Exit); double-click opens the browser at the Kestrel URL;
+  count, Pause polling, Exit); a left click opens the browser at the Kestrel URL;
   balloon notification when a review completes or fails.
 - Single-instance guard (named mutex); a second launch just opens the browser.
 - Graceful shutdown: stop the queue, kill child Claude processes, flush the database.
@@ -502,6 +502,11 @@ orphaned `claude.exe` or `git.exe` processes.
 
 Candidates, ordered by value; pick after Phases 0–6 are in use.
 
+- A publish profile (`Properties/PublishProfiles/`) that produces a self-contained,
+  framework-dependent folder under a fixed path with one `dotnet publish` command, so
+  installing the tool is "publish, run the exe, turn on Run at login". Release
+  configuration, `win-x64`, no single-file bundling (the worktree and CLI paths are
+  plain files), and the `tray` launch entry pointed at the published exe.
 - Live step progress on the report page using `--output-format stream-json`.
 - Cost and duration per step and per review (from Claude's result JSON) on the Reviews
   page.
