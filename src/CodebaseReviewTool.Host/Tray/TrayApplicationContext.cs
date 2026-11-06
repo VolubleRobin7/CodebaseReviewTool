@@ -27,7 +27,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly string _appUrl;
     private readonly ReviewEvents _events;
     private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory;
-    private readonly IPollPause _pollPause;
+    private readonly IPollControl _pollControl;
     private readonly ILogger<TrayApplicationContext> _logger;
     private readonly SynchronizationContext _ui;
     private readonly Icon _icon;
@@ -54,15 +54,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _appUrl = appUrl;
         _events = services.GetRequiredService<ReviewEvents>();
         _dbContextFactory = services.GetRequiredService<IDbContextFactory<ReviewDbContext>>();
-        _pollPause = services.GetRequiredService<IPollPause>();
+        _pollControl = services.GetRequiredService<IPollControl>();
         _logger = services.GetRequiredService<ILogger<TrayApplicationContext>>();
         _ui = new WindowsFormsSynchronizationContext();
 
         var openItem = new ToolStripMenuItem("Open UI", null, (_, _) => OpenUi());
         openItem.Font = new Font(openItem.Font, FontStyle.Bold);
         _statusItem = new ToolStripMenuItem("Idle") { Enabled = false };
-        _pauseItem = new ToolStripMenuItem("Pause polling") { CheckOnClick = true, Checked = _pollPause.IsPaused };
-        _pauseItem.CheckedChanged += (_, _) => _pollPause.SetPaused(_pauseItem.Checked);
+        _pauseItem = new ToolStripMenuItem("Pause polling") { CheckOnClick = true, Checked = _pollControl.IsPaused };
+        _pauseItem.CheckedChanged += (_, _) => _pollControl.SetPaused(_pauseItem.Checked);
 
         _menu = new ContextMenuStrip();
         _menu.Items.AddRange(
@@ -101,7 +101,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             .ApplicationStopping.Register(() => _ui.Post(_ => ExitThread(), null));
 
         _events.ReviewChanged += OnReviewChanged;
-        _pollPause.Changed += OnPollPauseChanged;
+        _pollControl.Changed += OnPollChanged;
         _ = RefreshAsync();
     }
 
@@ -111,7 +111,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _exiting = true;
             _events.ReviewChanged -= OnReviewChanged;
-            _pollPause.Changed -= OnPollPauseChanged;
+            _pollControl.Changed -= OnPollChanged;
             _stoppingRegistration.Dispose();
 
             // Hide first so the icon does not linger in the tray while the host shuts down.
@@ -155,7 +155,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     // Raised on the publisher's thread; the refresh queries the database there and posts the UI changes.
     private void OnReviewChanged(ReviewChangedEventArgs args) => _ = RefreshAsync();
 
-    private void OnPollPauseChanged() => _ui.Post(_ => _pauseItem.Checked = _pollPause.IsPaused, null);
+    private void OnPollChanged() => _ui.Post(_ => _pauseItem.Checked = _pollControl.IsPaused, null);
 
     /// <summary>
     /// Re-reads which reviews are queued or running, updates the menu and tooltip, and raises a balloon for each

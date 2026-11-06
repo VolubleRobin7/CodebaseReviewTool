@@ -21,7 +21,7 @@
 @inject IOptions<DevOpsOptions> DevOpsOptions
 @inject IOptions<GitOptions> GitOptions
 @inject GitRunner GitRunner
-@inject IPollPause PollPause
+@inject IPollControl PollControl
 @inject IProcessRunner ProcessRunner
 @inject IRepositoryRegistry RepositoryRegistry
 @inject IOptions<ReviewOptions> ReviewOptions
@@ -227,16 +227,16 @@
             <span>DevOps polling</span>
 
             <span>
-                <span class="@(PollPause.IsPaused ? "check-running check-state" : "check-passed check-state")">@(PollPause.IsPaused ? "Paused" : "Running")</span>
+                <span class="@(PollControl.IsPaused ? "check-running check-state" : "check-passed check-state")">@(PollControl.IsPaused ? "Paused" : "Running")</span>
                 <span class="row-detail">While paused only a manual refresh of the pull request list polls. Resets on restart.</span>
             </span>
 
             <span class="check-action">
-                <button @onclick="() => PollPause.SetPaused(!PollPause.IsPaused)"
+                <button @onclick="() => PollControl.SetPaused(!PollControl.IsPaused)"
                         class="btn btn-link"
                         type="button">
 
-                    @(PollPause.IsPaused ? "Resume" : "Pause")
+                    @(PollControl.IsPaused ? "Resume" : "Pause")
 
                 </button>
             </span>
@@ -334,7 +334,7 @@
     protected override async Task OnInitializedAsync()
     {
         _runAtLogin = StartupShortcut.IsEnabled;
-        PollPause.Changed += OnPollPauseChanged;
+        PollControl.Changed += OnPollChanged;
 
         _checks.Add(new Check("Claude", CheckClaudeAsync));
         _checks.Add(new Check("git", CheckGitAsync));
@@ -403,10 +403,10 @@
         }
     }
 
-    public void Dispose() => PollPause.Changed -= OnPollPauseChanged;
+    public void Dispose() => PollControl.Changed -= OnPollChanged;
 
     // The tray menu can pause polling too; the event arrives on its thread.
-    private void OnPollPauseChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnPollChanged() => _ = InvokeAsync(StateHasChanged);
 
     private async Task ToggleRunAtLoginAsync()
     {

@@ -11,28 +11,24 @@ namespace CodebaseReviewTool.Core.Hosting;
 
 /// <summary>
 /// Keeps the pull request cache current: polls every configured repository once at startup, then every
-/// <c>DevOps:PollIntervalSeconds</c> or sooner when <see cref="IPollTrigger.RequestPoll"/> asks for one. While
-/// <see cref="IPollPause"/> is paused the scheduled polls are skipped and only requested ones run. Read-only towards
+/// <c>DevOps:PollIntervalSeconds</c> or sooner when <see cref="IPollControl.RequestPoll"/> asks for one. While
+/// paused through <see cref="IPollControl"/> the scheduled polls are skipped and only requested ones run. Read-only towards
 /// DevOps. A failing repository is logged and recorded on
-/// <see cref="IPollStatus"/> and the cache keeps its last contents; it never stops the other repositories or the
+/// <see cref="IPollControl"/> and the cache keeps its last contents; it never stops the other repositories or the
 /// service. Never starts a review.
 /// </summary>
 public sealed class DevOpsPollService(
     IServiceScopeFactory scopeFactory,
     IRepositoryRegistry registry,
     PullRequestCache cache,
-    PollStatus status,
-    PollTrigger trigger,
-    IPollPause pause,
+    PollControl control,
     IOptions<DevOpsOptions> options,
     ILogger<DevOpsPollService> logger) : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly IRepositoryRegistry _registry = registry;
     private readonly PullRequestCache _cache = cache;
-    private readonly PollStatus _status = status;
-    private readonly PollTrigger _trigger = trigger;
-    private readonly IPollPause _pause = pause;
+    private readonly PollControl _control = control;
     private readonly DevOpsOptions _options = options.Value;
     private readonly ILogger<DevOpsPollService> _logger = logger;
 
@@ -45,7 +41,7 @@ public sealed class DevOpsPollService(
 
         if (!_options.HasCredentials)
         {
-            _status.Disable();
+            _control.Disable();
             _logger.LogInformation("DevOps polling is disabled: DevOps:Pat is not set and DevOps:UseDefaultCredentials is false");
             return;
         }
@@ -57,7 +53,7 @@ public sealed class DevOpsPollService(
         var wake = PollWake.Requested;
         while (wake != PollWake.Stopping)
         {
-            if (wake == PollWake.Requested || !_pause.IsPaused)
+            if (wake == PollWake.Requested || !_control.IsPaused)
             {
                 await PollAsync(stoppingToken);
             }
@@ -72,7 +68,7 @@ public sealed class DevOpsPollService(
 
     private async Task PollAsync(CancellationToken cancellationToken)
     {
-        _status.PollStarted();
+        _control.PollStarted();
         try
         {
             // The typed DevOps client is transient; one scope per poll gives it a fresh HttpClient from the factory.
@@ -86,7 +82,7 @@ public sealed class DevOpsPollService(
         }
         finally
         {
-            _status.PollFinished();
+            _control.PollFinished();
         }
     }
 
@@ -102,7 +98,7 @@ public sealed class DevOpsPollService(
             }
 
             var merge = await _cache.MergeAsync(repository, result.Items, cancellationToken);
-            _status.RecordSuccess(repository.Key, DateTime.UtcNow);
+            _control.RecordSuccess(repository.Key, DateTime.UtcNow);
             _logger.LogInformation(
                 "Polled {RepositoryKey}: {Active} active pull requests ({Added} added, {Updated} updated, {Closed} closed)",
                 repository.Key, result.Items.Count, merge.Added, merge.Updated, merge.Closed);
@@ -116,7 +112,7 @@ public sealed class DevOpsPollService(
 
     private void Fail(ResolvedRepository repository, string error)
     {
-        _status.RecordFailure(repository.Key, error);
+        _control.RecordFailure(repository.Key, error);
         _logger.LogWarning("Polling {RepositoryKey} failed; keeping the cached pull requests. {Error}", repository.Key, error);
     }
 
@@ -125,7 +121,7 @@ public sealed class DevOpsPollService(
     {
         try
         {
-            return await _trigger.WaitAsync(interval, cancellationToken) ? PollWake.Requested : PollWake.Scheduled;
+            return await _control.WaitAsync(interval, cancellationToken) ? PollWake.Requested : PollWake.Scheduled;
         }
         catch (OperationCanceledException)
         {

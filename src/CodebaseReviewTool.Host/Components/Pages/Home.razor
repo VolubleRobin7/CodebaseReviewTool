@@ -12,8 +12,7 @@
 
 @inject IDbContextFactory<ReviewDbContext> DbContextFactory
 @inject ILogger<Home> Logger
-@inject IPollStatus PollStatus
-@inject IPollTrigger PollTrigger
+@inject IPollControl PollControl
 @inject IRepositoryRegistry RepositoryRegistry
 @inject ReviewEvents ReviewEvents
 @inject ReviewService ReviewService
@@ -30,12 +29,12 @@
         <p class="@(PollError is null ? "poll-status" : "poll-error poll-status")">
             @(PollError ?? PollText)
 
-            @if (PollStatus.IsEnabled)
+            @if (PollControl.IsEnabled)
             {
-                <button @onclick="PollTrigger.RequestPoll"
+                <button @onclick="PollControl.RequestPoll"
                         aria-label="Refresh now"
                         class="poll-refresh"
-                        disabled="@PollStatus.IsPolling"
+                        disabled="@PollControl.IsPolling"
                         title="Refresh now"
                         type="button">
 
@@ -138,9 +137,9 @@
     private Timer? _clock;
     private PullRequestListItem? _reviewAgain;
 
-    private string? PollError => PollStatus.IsEnabled ? PollStatus.LastError : null;
+    private string? PollError => PollControl.IsEnabled ? PollControl.LastError : null;
 
-    private string PollText => PollStatus switch
+    private string PollText => PollControl switch
     {
         { IsEnabled: false } => "DevOps polling is disabled: no PAT is set and Windows authentication is off.",
         { LastSuccessfulPollUtc: { } last } => $"Updated {RelativeTime.Ago(last)}",
@@ -152,8 +151,8 @@
     {
         ReviewEvents.PullRequestsChanged += OnPullRequestsChanged;
         ReviewEvents.ReviewChanged += OnReviewChanged;
-        PollStatus.Changed += OnPollStatusChanged;
-        _clock = new Timer(_ => OnPollStatusChanged(), null, _clockInterval, _clockInterval);
+        PollControl.Changed += OnPollChanged;
+        _clock = new Timer(_ => OnPollChanged(), null, _clockInterval, _clockInterval);
 
         await LoadAsync();
     }
@@ -162,7 +161,7 @@
     {
         ReviewEvents.PullRequestsChanged -= OnPullRequestsChanged;
         ReviewEvents.ReviewChanged -= OnReviewChanged;
-        PollStatus.Changed -= OnPollStatusChanged;
+        PollControl.Changed -= OnPollChanged;
         _clock?.Dispose();
     }
 
@@ -171,7 +170,7 @@
 
     private void OnReviewChanged(ReviewChangedEventArgs args) => _ = InvokeAsync(ReloadAsync);
 
-    private void OnPollStatusChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnPollChanged() => _ = InvokeAsync(StateHasChanged);
 
     private async Task ReloadAsync()
     {

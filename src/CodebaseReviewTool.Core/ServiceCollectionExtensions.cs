@@ -50,11 +50,8 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<ReviewEvents>();
         services.AddSingleton<PullRequestCache>();
-        services.AddSingleton<PollStatus>();
-        services.AddSingleton<IPollStatus>(sp => sp.GetRequiredService<PollStatus>());
-        services.AddSingleton<PollTrigger>();
-        services.AddSingleton<IPollTrigger>(sp => sp.GetRequiredService<PollTrigger>());
-        services.AddSingleton<IPollPause, PollPause>();
+        services.AddSingleton<PollControl>();
+        services.AddSingleton<IPollControl>(sp => sp.GetRequiredService<PollControl>());
         services.AddSingleton<ReviewQueue>();
         services.AddSingleton<ReviewService>();
 
