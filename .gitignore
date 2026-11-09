@@ -215,6 +215,9 @@ publish/
 # Note: Comment the next line if you want to checkin your web deploy settings,
 # but database connection strings (with potential passwords) will be unencrypted
 *.pubxml
+# The install and package profiles hold no secrets and are how the tool is deployed.
+!src/CodebaseReviewTool.Host/Properties/PublishProfiles/Install.pubxml
+!src/CodebaseReviewTool.Host/Properties/PublishProfiles/Package.pubxml
 *.publishproj
 
 # Microsoft Azure Web App publish settings. Comment the next line if you want to

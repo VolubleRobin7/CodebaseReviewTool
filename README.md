@@ -74,6 +74,36 @@ worktree with the read-only tool allowlist from `Claude:AllowedTools`. The promp
 the Configuration page under "Flow steps"; each step can also pick a model and a timeout, and
 "Reset to default" restores the shipped prompt. Saved changes apply to reviews started afterwards.
 
+## Install
+
+The tool is meant to live in the tray rather than in an IDE. To install or update it:
+
+```
+dotnet publish src/CodebaseReviewTool.Host -p:PublishProfile=Install
+```
+
+This publishes a Release, framework-dependent build (the .NET 10 runtime must be installed) to
+`%LOCALAPPDATA%\Programs\CodebaseReviewTool`. Publishing the `Install` profile from Visual
+Studio's Publish page does the same. Run `CodebaseReviewTool.Host.exe` from there: it
+starts to the tray with no console, reads the same user-secrets as the development build, and a
+left click on the icon opens the UI. Turn on "Run at login" under Tray on the Configuration page
+to have it start with Windows. Exit the running copy from the tray icon before publishing again;
+the publish stops with a message if it is still running, and it leaves an `appsettings.json`
+already in the folder alone. Pass `--console` to run it with a console window instead of the tray.
+
+### Sharing it
+
+```
+dotnet publish src/CodebaseReviewTool.Host -p:PublishProfile=Package
+```
+
+This produces `src/CodebaseReviewTool.Host/bin/Release/CodebaseReviewTool.zip`. The recipient
+unzips it anywhere, fills in `appsettings.json` (the placeholders are rejected at startup with a
+message naming each key; the DevOps PAT goes in plain text there, so keep the folder private) and
+runs `CodebaseReviewTool.Host.exe`. They need the .NET 10 Desktop and ASP.NET Core runtimes
+(the exe says which are missing), git, a signed-in Claude Code CLI and local clones of the
+repositories. When unzipping an update, keep the existing `appsettings.json`.
+
 ## Design
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) for the architecture,

@@ -9,6 +9,8 @@
     <ApplicationIcon>wwwroot\favicon.ico</ApplicationIcon>
     <UserSecretsId>7d3c5b2e-8f41-4a6c-9e0d-2b6f1c4a8e53</UserSecretsId>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <!-- Never hosted in IIS, so publishing writes no web.config. -->
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,8 +25,63 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Development settings (tray off, verbose logging) stay out of the installed copy, which runs as Production. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CodebaseReviewTool.Core\CodebaseReviewTool.Core.csproj" />
   </ItemGroup>
+
+  <!--
+    Where a publish ends up. The command line publishes to PublishDir. Visual Studio (DeployOnBuild) publishes to a
+    temporary folder under obj and then copies that to PublishUrl, so the profiles set both. Computed in a target
+    because the profile is imported after this file is evaluated. An empty destination would copy into the project
+    folder, so it is an error.
+  -->
+  <Target Name="ComputeFinalPublishDir">
+    <PropertyGroup>
+      <_FinalPublishDir Condition="'$(DeployOnBuild)' == 'true'">$(PublishUrl)</_FinalPublishDir>
+      <_FinalPublishDir Condition="'$(DeployOnBuild)' != 'true'">$(PublishDir)</_FinalPublishDir>
+    </PropertyGroup>
+    <Error Condition="'$(_FinalPublishDir)' == ''" Text="The publish profile sets no destination (PublishDir and, for Visual Studio, PublishUrl)." />
+  </Target>
+
+  <!--
+    Publishing over a running copy fails ten seconds into the file copy with a locked-file error, so check first and
+    say what to do. Only the copy in the publish folder matters: one running from bin does not lock it.
+  -->
+  <Target Name="EnsurePublishedAppIsNotRunning" BeforeTargets="PrepareForPublish" DependsOnTargets="ComputeFinalPublishDir">
+    <PropertyGroup>
+      <_PublishedExe>$([System.IO.Path]::GetFullPath('$(_FinalPublishDir)$(AssemblyName).exe'))</_PublishedExe>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -NonInteractive -Command &quot;if (Get-Process -Name '$(AssemblyName)' -ErrorAction SilentlyContinue | Where-Object Path -eq '$(_PublishedExe)') { exit 1 }&quot;"
+          IgnoreExitCode="true"
+          StandardOutputImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_PublishedAppRunning" />
+    </Exec>
+    <Error Condition="'$(_PublishedAppRunning)' == '1'" Text="Codebase Review Tool is running from $(_PublishedExe). Exit it from the tray icon, then publish again." />
+  </Target>
+
+  <!--
+    With KeepInstalledSettings (the Install profile), an appsettings.json already in the destination is left as it is:
+    the one in the publish list is replaced by the installed file itself, so the publish copies it onto itself. It has
+    to stay in the list, because the SDK deletes anything it published before that drops out of the list.
+  -->
+  <Target Name="KeepInstalledSettings" AfterTargets="ComputeResolvedFilesToPublishList" DependsOnTargets="ComputeFinalPublishDir" Condition="'$(KeepInstalledSettings)' == 'true'">
+    <ItemGroup Condition="Exists('$(_FinalPublishDir)appsettings.json')">
+      <_ShippedSettings Include="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.RelativePath)' == 'appsettings.json'" />
+      <ResolvedFileToPublish Remove="@(_ShippedSettings)" />
+      <ResolvedFileToPublish Include="$(_FinalPublishDir)appsettings.json" RelativePath="appsettings.json" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+    <Message Importance="High" Condition="Exists('$(_FinalPublishDir)appsettings.json')" Text="Keeping the appsettings.json already in $(_FinalPublishDir)" />
+  </Target>
+
+  <!-- With PackageZipPath (the Package profile), the published folder is zipped for handing to someone else. -->
+  <Target Name="ZipPublishedApp" AfterTargets="Publish" Condition="'$(PackageZipPath)' != ''">
+    <ZipDirectory SourceDirectory="$(PublishDir)" DestinationFile="$(PackageZipPath)" Overwrite="true" />
+    <Message Importance="High" Text="Packaged to $(PackageZipPath)" />
+  </Target>
 
   <!--
     The framework package only adds blazor.web.js as a static web asset when OutputType is Exe, and its target's

@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 6 complete (tray, single instance, run at login). Phase 7 not started.
+Status: Phase 6 complete. Phase 7 in progress: publish profile done, other candidates not started.
 
 ---
 
@@ -492,7 +492,7 @@ Goal: the tool behaves like a resident Windows app.
   balloon notification when a review completes or fails.
 - Single-instance guard (named mutex); a second launch just opens the browser.
 - Graceful shutdown: stop the queue, kill child Claude processes, flush the database.
-- "Run at login" toggle on the Settings page that creates or removes a shortcut in the
+- "Run at login" toggle on the Configuration page that creates or removes a shortcut in the
   user's Startup folder (no registry, no admin).
 
 Done when: the exe starts silently to the tray, the UI opens from it, and Exit leaves no
@@ -502,11 +502,16 @@ orphaned `claude.exe` or `git.exe` processes.
 
 Candidates, ordered by value; pick after Phases 0–6 are in use.
 
-- A publish profile (`Properties/PublishProfiles/`) that produces a self-contained,
-  framework-dependent folder under a fixed path with one `dotnet publish` command, so
-  installing the tool is "publish, run the exe, turn on Run at login". Release
-  configuration, `win-x64`, no single-file bundling (the worktree and CLI paths are
-  plain files), and the `tray` launch entry pointed at the published exe.
+- Done: the `Install` publish profile (`Properties/PublishProfiles/Install.pubxml`)
+  publishes a Release, `win-x64`, framework-dependent build to
+  `%LOCALAPPDATA%\Programs\CodebaseReviewTool` with one `dotnet publish` command, so
+  installing is "publish, run the exe, turn on Run at login" (README "Install"). No
+  single-file bundling; `appsettings.Development.json` is left out; publishing stops
+  with a message if the installed copy is running and keeps an `appsettings.json`
+  already in the folder. A second `Package` profile publishes under `bin\Release` and
+  zips the result to `CodebaseReviewTool.zip` for giving to someone else, who
+  configures the shipped `appsettings.json` directly. The `tray` launch entry stays on
+  the Debug build, since the install path is per user.
 - Live step progress on the report page using `--output-format stream-json`.
 - Cost and duration per step and per review (from Claude's result JSON) on the Reviews
   page.
