@@ -1,21 +1,24 @@
 namespace CodebaseReviewTool.Host.Tray;
 
 /// <summary>
-/// Holds the per-user named mutex that marks a running instance. The mutex is in the session's <c>Local\</c>
-/// namespace, so other users on the same machine can run their own instance.
+/// Holds the per-user named mutex that marks a running instance. The name carries the port, so an installed copy and
+/// a development copy on different ports run side by side while a second copy on the same port is refused. The mutex
+/// is in the session's <c>Local\</c> namespace, so other users on the same machine can run their own instance.
 /// </summary>
 internal sealed class SingleInstance : IDisposable
 {
-    private const string MutexName = @"Local\CodebaseReviewTool.Host";
-
     private readonly Mutex _mutex;
 
     private SingleInstance(Mutex mutex) => _mutex = mutex;
 
-    /// <summary>Returns the guard when this is the only instance, or null when another instance already holds it.</summary>
-    public static SingleInstance? TryAcquire()
+    /// <summary>
+    /// Returns the guard when this is the only instance on the port of <paramref name="appUrl"/>, or null when another
+    /// instance already holds it.
+    /// </summary>
+    public static SingleInstance? TryAcquire(string appUrl)
     {
-        var mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
+        var port = Uri.TryCreate(appUrl, UriKind.Absolute, out var uri) ? uri.Port : 0;
+        var mutex = new Mutex(initiallyOwned: true, $@"Local\CodebaseReviewTool.Host.{port}", out var createdNew);
         if (createdNew)
         {
             return new SingleInstance(mutex);

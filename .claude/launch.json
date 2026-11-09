@@ -5,7 +5,7 @@
       "name": "host",
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "src/CodebaseReviewTool.Host"],
-      "port": 5210
+      "port": 5211
     },
     {
       "name": "tray",

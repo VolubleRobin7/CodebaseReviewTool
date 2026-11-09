@@ -15,9 +15,10 @@ against a git worktree of the PR's source branch.
 
 ## Machine-specific configuration (user-secrets)
 
-`appsettings.json` holds only placeholders. Everything machine-specific lives in .NET
-user-secrets, which the app reads in every environment (the secrets id is already in the
-Host csproj). Set the values with Visual Studio's "Manage User Secrets" or
+`appsettings.json` holds only placeholders. For development, everything machine-specific lives
+in .NET user-secrets, which the app reads in the Development environment only (Visual Studio
+and `dotnet run`; the secrets id is already in the Host csproj). Set the values with Visual
+Studio's "Manage User Secrets" or
 `dotnet user-secrets set "<key>" "<value>" --project src/CodebaseReviewTool.Host`
 (e.g. key `Repositories:0:LocalPath`); the result should look like:
 
@@ -47,8 +48,11 @@ unset to have the tool detect the newest version the server supports (TFS 2017 u
 Set `DevOps:UseDefaultCredentials` to `true` to authenticate to an on-prem server with your
 Windows account instead of a PAT (the PAT may then be left empty).
 
-The Configuration page (http://localhost:5210/configuration) shows the effective configuration
-(the PAT only as "set") and has checks for Claude, git, DevOps and each repository.
+An installed copy (see Install below) reads no user-secrets: it is configured by editing the
+`appsettings.json` beside its exe with the same keys.
+
+The Configuration page (`/configuration`) shows the effective configuration (the PAT only as
+"set") and has checks for Claude, git, DevOps and each repository.
 
 ## Run
 
@@ -56,8 +60,12 @@ The Configuration page (http://localhost:5210/configuration) shows the effective
 dotnet run --project src/CodebaseReviewTool.Host
 ```
 
-- UI: http://localhost:5210
-- Health check: http://localhost:5210/api/health (returns `OK`)
+- UI: http://localhost:5211
+- Health check: http://localhost:5211/api/health (returns `OK`)
+
+The development environment listens on port 5211 and, through `appsettings.Development.json`,
+uses its own database, so it runs beside an installed copy (port 5210). Give it its own
+`Git:WorktreeRoot` in user-secrets too, since review ids repeat across the two databases.
 
 The home page lists the open pull requests of the configured repositories, read from DevOps
 at startup and then every `DevOps:PollIntervalSeconds`. "Start review" queues a review of a
@@ -84,9 +92,9 @@ dotnet publish src/CodebaseReviewTool.Host -p:PublishProfile=Install
 
 This publishes a Release, framework-dependent build (the .NET 10 runtime must be installed) to
 `%LOCALAPPDATA%\Programs\CodebaseReviewTool`. Publishing the `Install` profile from Visual
-Studio's Publish page does the same. Run `CodebaseReviewTool.Host.exe` from there: it
-starts to the tray with no console, reads the same user-secrets as the development build, and a
-left click on the icon opens the UI. Turn on "Run at login" under Tray on the Configuration page
+Studio's Publish page does the same. Fill in the `appsettings.json` there (placeholders are
+rejected at startup with a message naming each key), then run `CodebaseReviewTool.Host.exe`: it
+starts to the tray with no console on port 5210, and a left click on the icon opens the UI. Turn on "Run at login" under Tray on the Configuration page
 to have it start with Windows. Exit the running copy from the tray icon before publishing again;
 the publish stops with a message if it is still running, and it leaves an `appsettings.json`
 already in the folder alone. Pass `--console` to run it with a console window instead of the tray.

@@ -33,13 +33,9 @@ public sealed class Program
             ContentRootPath = AppContext.BaseDirectory,
         });
 
-        // Machine-specific configuration (PAT, organisation, worktree root, repositories) lives in user-secrets.
-        // CreateBuilder only adds them in Development and the tray-hosted exe runs as Production, so add them in every
-        // environment. Environment variables and the command line are re-added after them so they keep precedence.
-        builder.Configuration.AddUserSecrets<Program>(optional: true);
-        builder.Configuration.AddEnvironmentVariables();
-        builder.Configuration.AddCommandLine(hostArgs);
-
+        // Configuration is appsettings.json beside the exe, environment variables and the command line. In the
+        // Development environment (Visual Studio, dotnet run) user-secrets are layered in as well, so a development
+        // copy can run beside an installed one with its own values.
         var trayOptions = builder.Configuration.GetSection(TrayOptions.SectionName).Get<TrayOptions>() ?? new TrayOptions();
         var useTray = trayOptions.Enabled && !useConsole;
         if (!useTray)
@@ -47,11 +43,11 @@ public sealed class Program
             ConsoleWindow.Ensure();
         }
 
-        using var instance = SingleInstance.TryAcquire();
+        var url = AppUrl.FromConfiguration(builder.Configuration);
+        using var instance = SingleInstance.TryAcquire(url);
         if (instance is null)
         {
-            // Another instance owns the port and the database; show its UI instead of starting a second host.
-            var url = AppUrl.FromConfiguration(builder.Configuration);
+            // Another instance owns this port and its database; show its UI instead of starting a second host.
             Console.WriteLine($"Codebase Review Tool is already running; opening {url}");
             Browser.TryOpen(url);
             return 0;

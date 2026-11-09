@@ -26,7 +26,7 @@ public sealed class ConfirmNotPlaceholderAttribute : ValidationAttribute
 
         var key = ConfigKey(validationContext);
         return new ValidationResult(
-            $"{key} contains '<' or '>', so it is still an unreplaced placeholder; set a real value (normally in user-secrets).",
+            $"{key} contains '<' or '>', so it is still an unreplaced placeholder; set a real value (in appsettings.json beside the exe, or in user-secrets for development).",
             validationContext.MemberName is null ? null : [validationContext.MemberName]);
     }
 

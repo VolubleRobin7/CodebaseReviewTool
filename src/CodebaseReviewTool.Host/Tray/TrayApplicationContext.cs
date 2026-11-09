@@ -25,6 +25,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private const int MaxTooltipLength = 127;
 
     private readonly string _appUrl;
+
+    // The app name, with the environment appended outside Production so a development copy's icon is recognisable.
+    private readonly string _title;
+
     private readonly ReviewEvents _events;
     private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory;
     private readonly IPollControl _pollControl;
@@ -52,6 +56,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         ArgumentNullException.ThrowIfNull(services);
 
         _appUrl = appUrl;
+        var environment = services.GetRequiredService<IHostEnvironment>();
+        _title = environment.IsProduction() ? AppName : $"{AppName} ({environment.EnvironmentName})";
         _events = services.GetRequiredService<ReviewEvents>();
         _dbContextFactory = services.GetRequiredService<IDbContextFactory<ReviewDbContext>>();
         _pollControl = services.GetRequiredService<IPollControl>();
@@ -80,7 +86,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             ContextMenuStrip = _menu,
             Icon = _icon,
-            Text = AppName,
+            Text = _title,
             Visible = true,
         };
         // A left click opens the UI; the right click is left to Windows, which shows the context menu.
@@ -259,7 +265,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         _statusItem.Text = status;
 
-        var tooltip = $"{AppName} - {status}";
+        var tooltip = $"{_title} - {status}";
         _notifyIcon.Text = tooltip.Length > MaxTooltipLength ? tooltip[..MaxTooltipLength] : tooltip;
 
         // Windows shows one balloon at a time, so a burst of finishes shows the latest.

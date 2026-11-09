@@ -30,7 +30,7 @@ implementation sessions unless Mitch changes them.
 | Diagram output | HTML excerpt, shown in a sandboxed iframe (`sandbox="allow-scripts"`, no same-origin) so the excerpt may load its own scripts (e.g. a Mermaid CDN) but cannot touch the host page. |
 | Issues output | Fixed JSON schema owned by the tool (see §6). The tool appends the schema instruction to the issues prompt and enforces it with `--json-schema`. Parsed into a table. |
 | Summary output | Plain text, used directly. |
-| Config | appsettings.json holds the shape and placeholder or generic defaults and is committed. **.NET user-secrets holds everything machine-specific**: the DevOps PAT, organisation URL, worktree root and repositories. Secrets are never in appsettings. |
+| Config | appsettings.json holds the shape and placeholder or generic defaults and is committed. In development, **.NET user-secrets holds everything machine-specific** (the DevOps PAT, organisation URL, worktree root and repositories) and is read only in the Development environment. An installed copy is configured by editing the appsettings.json beside its exe, which the Install profile preserves across updates. Secrets are never committed. |
 | Storage | SQLite file via EF Core with migrations. |
 | API | Minimal API, one endpoint for now: `GET /api/health` → `200 "OK"`. Structured so more endpoints can be added later. |
 | Repo | Personal tool; stays in this GitHub repo. No commits are made by Claude sessions unless asked. |
@@ -130,8 +130,8 @@ and the only one with an entry point.
 | `Components/Shared/` | `IssuesTable`, `DiagramFrame`, `SeverityBadge`, `PlaceholderReference`, `RunDetails`, `StepEditor` | Reusable pieces of the report and configuration pages. `DiagramFrame` owns the sandboxed iframe and the height `postMessage` handshake. |
 | `Tray/` | `TrayApplicationContext`, `StartupShortcut`, `SingleInstance`, `AppIcon`, `AppUrl`, `Browser`, `ConsoleWindow` | NotifyIcon with context menu, open-browser action, balloon notifications from `ReviewEvents`, the Startup-folder shortcut toggle, the named mutex that makes a second launch just open the browser, and small helpers for the icon (one `wwwroot/favicon.ico` serves as exe icon, tray icon and favicon), the app URL, launching the browser and attaching a console. |
 | `wwwroot/` | `app.css`, `theme.js`, `diagram-frame.js` | Design tokens and components from the mockup (§10); the theme script that applies the saved light/dark choice before paint; the few lines of JS for iframe height. System fonts only, so nothing loads from the internet and no font files ship. |
-| `appsettings.json`, `appsettings.Development.json` | | Committed configuration with placeholder values only. Machine-specific values (PAT, organisation URL, worktree root, repositories) live in user-secrets; the id is set in the csproj. |
-| `Properties/launchSettings.json` | | Single `http` profile on port 5210, Development environment. No https profile: the app is loopback-only. |
+| `appsettings.json`, `appsettings.Development.json` | | Committed configuration with placeholder values only. In development the machine-specific values (PAT, organisation URL, worktree root, repositories) live in user-secrets; the id is set in the csproj. The Development file moves the port to 5211 and the database to a `-DEV` folder so a development copy runs beside an installed one. |
+| `Properties/launchSettings.json` | | Single `http` profile on port 5211, Development environment. No https profile: the app is loopback-only. |
 
 Package references: the Core project, WinForms via `<UseWindowsForms>true</UseWindowsForms>`.
 The `dotnet ef` tooling targets Core on its own (Core holds `Microsoft.EntityFrameworkCore.Design`
@@ -368,10 +368,11 @@ Goal: the app validates its configuration on start and owns a SQLite database.
   each `LocalPath` (§4), failing startup with a clear message when a remote URL cannot
   be parsed and no overrides are given, or its organisation differs from
   `DevOps:OrganizationUrl`.
-- User-secrets loaded in **every** environment: `builder.Configuration.AddUserSecrets<Program>()`
-  explicitly in `Program.cs`. `WebApplication.CreateBuilder` only adds them in
-  Development, and the tray-hosted exe runs as Production, so without this the built app
-  would see none of the machine-specific config.
+- User-secrets are read in the Development environment only, which is
+  `WebApplication.CreateBuilder`'s default. (Phases 1 to 6 loaded them in every
+  environment so the tray exe found the development configuration; that was dropped
+  with the publish profiles so an installed copy, configured through its own
+  appsettings.json, can run beside the development copy.)
 - `ReviewDbContext`, entities (§5), initial migration, `Database.Migrate()` on startup,
   seed of one `FlowStep` row per shipped default prompt (`DefaultPrompts`, embedded
   resources in Core), never overwriting rows that already exist.
@@ -530,8 +531,9 @@ Candidates, ordered by value; pick after Phases 0–6 are in use.
 - One review at a time by default; Claude runs are heavy and share the user's rate limit.
 - The summary is rendered as plain text with line breaks preserved (no Markdown
   rendering) because it is "just text". Easy to switch to Markdig later.
-- Kestrel listens on `http://localhost:5210`, HTTP only, loopback only. No auth on the
-  UI or API because nothing is exposed off the machine.
+- Kestrel listens on `http://localhost:5210` (5211 in Development), HTTP only, loopback
+  only. No auth on the UI or API because nothing is exposed off the machine. The
+  single-instance mutex is keyed on the port, so the two can run together.
 - The database lives in `%LOCALAPPDATA%\CodebaseReviewTool` so a rebuild or clean never
   deletes review history.
 - Only the DevOps PAT is a secret. It needs Code (Read) scope only.
