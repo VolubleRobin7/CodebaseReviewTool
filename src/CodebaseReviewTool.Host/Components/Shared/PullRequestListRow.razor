@@ -5,6 +5,14 @@
         <div class="pr-title-line">
             <span class="pr-number">#@Item.PullRequest.Id</span>
             <span class="pr-title">@Item.PullRequest.Title</span>
+            @if (Item.PullRequest.IsDraft)
+            {
+                <span class="tag">Draft</span>
+            }
+            @if (Item.PullRequest.MergeStatus == "conflicts")
+            {
+                <span class="tag tag-high">Conflicts</span>
+            }
         </div>
 
         <div class="pr-meta">

@@ -105,10 +105,17 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("IsDraft")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsOpen")
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MergeStatus")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("SourceBranch")

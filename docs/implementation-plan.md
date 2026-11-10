@@ -5,7 +5,7 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 (HTML excerpt) and a table of issues, each produced by a user-configured Claude Code prompt
 or skill run against a git worktree of the PR's source branch.
 
-Status: Phase 6 complete. Phase 7 in progress: publish profile done, other candidates not started.
+Status: Phases 0–6 complete. Phase 7: publishing and side-by-side installs done; the remaining candidates are optional and unpicked.
 
 ---
 
@@ -223,8 +223,7 @@ The stable id used in worktree paths and the database (`RepositoryKey`) is a slu
 | Entity | Purpose | Key fields |
 |---|---|---|
 | `FlowStep` | The global flow. Seeded with three rows; the schema allows any number. | `Step` (int PK, the sequence, starting at 0; a step's output is read by position: 0 = summary text, 1 = diagram HTML, last = issues JSON), `Name` (editable; the card title and report heading), `PromptText`, `Model?`, `TimeoutMinutes?`, `UpdatedAt` |
-| `PullRequest` | Cache of DevOps PR metadata. | `Id` (DevOps PR id), `RepositoryKey`, `Title`, `Description`, `AuthorName`, `SourceBranch`, `TargetBranch`, `SourceCommit`, `Status`, `CreatedAt`, `Url`, `LastSeenAt`, `IsOpen` |
-| `Review` | One review run of one PR. | `Id`, `PullRequestId`, `RepositoryKey`, `SourceCommit`, `MergeBaseCommit`, `Status`, `WorktreePath`, `WorktreeRemovedAt?`, `QueuedAt`, `StartedAt?`, `CompletedAt?`, `Error?` |
+| `PullRequest` | Cache of DevOps PR metadata. | `Id` (DevOps PR id), `RepositoryKey`, `Title`, `Description`, `AuthorName`, `SourceBranch`, `TargetBranch`, `SourceCommit`, `Status`, `IsDraft` (shown as a "Draft" tag after the title), `MergeStatus` (a "Conflicts" tag when DevOps reports conflicts), `CreatedAt`, `Url`, `LastSeenAt`, `IsOpen` || `Review` | One review run of one PR. | `Id`, `PullRequestId`, `RepositoryKey`, `SourceCommit`, `MergeBaseCommit`, `Status`, `WorktreePath`, `WorktreeRemovedAt?`, `QueuedAt`, `StartedAt?`, `CompletedAt?`, `Error?` |
 | `ReviewStepRun` | One Claude run inside a review. | `Id`, `ReviewId`, `Step` (matches `FlowStep.Step`), `RenderedPrompt`, `CommandLine`, `RawOutputJson`, `ResultText`, `StdErr`, `ExitCode?`, `AgentSessionId?`, `DurationMs?`, `CostUsd?`, `StartedAt?`, `CompletedAt?`, `Error?` |
 | `Issue` | Parsed rows from the Issues step. | `Id`, `ReviewId`, `Severity`, `Category`, `File`, `Line?`, `Title`, `Description`, `Suggestion?` |
 
@@ -504,15 +503,17 @@ orphaned `claude.exe` or `git.exe` processes.
 Candidates, ordered by value; pick after Phases 0–6 are in use.
 
 - Done: the `Install` publish profile (`Properties/PublishProfiles/Install.pubxml`)
-  publishes a Release, `win-x64`, framework-dependent build to
-  `%LOCALAPPDATA%\Programs\CodebaseReviewTool` with one `dotnet publish` command, so
-  installing is "publish, run the exe, turn on Run at login" (README "Install"). No
-  single-file bundling; `appsettings.Development.json` is left out; publishing stops
-  with a message if the installed copy is running and keeps an `appsettings.json`
-  already in the folder. A second `Package` profile publishes under `bin\Release` and
-  zips the result to `CodebaseReviewTool.zip` for giving to someone else, who
-  configures the shipped `appsettings.json` directly. The `tray` launch entry stays on
-  the Debug build, since the install path is per user.
+  publishes a Release, framework-dependent build to
+  `%LOCALAPPDATA%\Programs\CodebaseReviewTool` with one `dotnet publish` command or
+  Visual Studio's Publish page, so installing is "publish, fill in appsettings.json,
+  run the exe, turn on Run at login" (README "Install"). No single-file bundling;
+  `appsettings.Development.json` is left out; publishing stops with a message if the
+  installed copy is running and keeps an `appsettings.json` already in the folder. A
+  second `Package` profile publishes under `bin\Release` and zips the result to
+  `CodebaseReviewTool.zip` for giving to someone else. An installed copy and the
+  development copy run side by side: secrets load only in Development, which also
+  uses port 5211 and its own database, and the single-instance mutex is keyed on the
+  port.
 - Live step progress on the report page using `--output-format stream-json`.
 - Cost and duration per step and per review (from Claude's result JSON) on the Reviews
   page.

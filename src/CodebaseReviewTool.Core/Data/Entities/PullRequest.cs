@@ -26,6 +26,12 @@ public class PullRequest
     /// <summary>DevOps status text (e.g. <c>active</c>, <c>completed</c>, <c>abandoned</c>).</summary>
     public string Status { get; set; } = string.Empty;
 
+    /// <summary>True while DevOps marks the pull request as a draft.</summary>
+    public bool IsDraft { get; set; }
+
+    /// <summary>DevOps merge status text (e.g. <c>succeeded</c>, <c>conflicts</c>, <c>queued</c>, <c>notSet</c>).</summary>
+    public string MergeStatus { get; set; } = string.Empty;
+
     /// <summary>UTC.</summary>
     public DateTime CreatedAt { get; set; }
 

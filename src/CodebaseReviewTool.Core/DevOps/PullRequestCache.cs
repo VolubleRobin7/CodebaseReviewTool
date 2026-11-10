@@ -63,6 +63,8 @@ public sealed class PullRequestCache(IDbContextFactory<ReviewDbContext> dbContex
             // Without a merge yet there is no commit; keep the last one known rather than forget it.
             row.SourceCommit = source.LastMergeSourceCommit?.CommitId ?? row.SourceCommit;
             row.Status = source.Status;
+            row.IsDraft = source.IsDraft;
+            row.MergeStatus = source.MergeStatus;
             row.CreatedAt = source.CreationDate;
             row.Url = source.WebUrl;
             row.LastSeenAt = now;

@@ -82,7 +82,17 @@
             <div class="report-main">
                 <header class="report-head">
                     <span class="report-number">#@report.PullRequest.Id</span>
-                    <h1 class="page-title report-title">@report.PullRequest.Title</h1>
+                    <h1 class="page-title report-title">
+                        @report.PullRequest.Title
+                        @if (report.PullRequest.IsDraft)
+                        {
+                            <span class="tag">Draft</span>
+                        }
+                        @if (report.PullRequest.MergeStatus == "conflicts")
+                        {
+                            <span class="tag tag-high">Conflicts</span>
+                        }
+                    </h1>
 
                     <div class="report-actions">
                         @if (!report.IsInProgress)

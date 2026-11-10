@@ -6,12 +6,12 @@ namespace CodebaseReviewTool.Core.Data;
 
 /// <summary>
 /// Used only by <c>dotnet ef</c>, so migrations can be added and listed without building the Host (whose startup
-/// validation needs the machine's real configuration). Points at the default database path from appsettings.json,
-/// or <c>REVIEWTOOL_DB_PATH</c> when set.
+/// validation needs the machine's real configuration). Points at a scratch database under the temp folder, never at
+/// the installed copy's database, or at <c>REVIEWTOOL_DB_PATH</c> when set.
 /// </summary>
 public sealed class ReviewDbContextFactory : IDesignTimeDbContextFactory<ReviewDbContext>
 {
-    private const string DefaultPath = @"%LOCALAPPDATA%\CodebaseReviewTool\reviews.db";
+    private const string DefaultPath = @"%TEMP%\CodebaseReviewTool\design-time.db";
 
     public ReviewDbContext CreateDbContext(string[] args)
     {

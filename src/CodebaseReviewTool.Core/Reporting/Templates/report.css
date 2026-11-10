@@ -28,6 +28,8 @@ a:hover { text-decoration: underline; }
 .report-number { font-family: var(--mono); font-size: 12.5px; color: var(--faint); }
 .page-title { margin: 0; font-size: 40px; font-weight: 500; letter-spacing: -0.028em; line-height: 1.1; text-wrap: pretty; }
 .report-links { margin: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; color: var(--faint); }
+.tag-high { color: var(--high); border-color: currentColor; }
+.tag { display: inline-block; padding: 2px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font-family: var(--sans); font-size: 11.5px; font-weight: 500; letter-spacing: 0.02em; line-height: 1.5; color: var(--muted); vertical-align: middle; white-space: nowrap; }
 .kv-stack { margin: 0; display: flex; flex-direction: column; gap: 16px; font-size: 13.5px; }
 .kv-stack > div { display: flex; flex-direction: column; gap: 4px; }
 .kv-stack dt { font-size: 12px; color: var(--faint); }

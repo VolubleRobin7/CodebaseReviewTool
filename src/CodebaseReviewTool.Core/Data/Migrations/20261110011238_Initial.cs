@@ -40,6 +40,8 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                     TargetBranch = table.Column<string>(type: "TEXT", nullable: false),
                     SourceCommit = table.Column<string>(type: "TEXT", nullable: false),
                     Status = table.Column<string>(type: "TEXT", nullable: false),
+                    IsDraft = table.Column<bool>(type: "INTEGER", nullable: false),
+                    MergeStatus = table.Column<string>(type: "TEXT", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
                     Url = table.Column<string>(type: "TEXT", nullable: false),
                     LastSeenAt = table.Column<DateTime>(type: "TEXT", nullable: false),

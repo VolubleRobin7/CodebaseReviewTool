@@ -73,7 +73,10 @@ public static class ReportBuilder
         var pullRequest = report.PullRequest;
 
         html.Append("<header class=\"report-head\">\n<span class=\"report-number\">#").Append(pullRequest.Id).Append("</span>\n")
-            .Append("<h1 class=\"page-title\">").Append(Encode(pullRequest.Title)).Append("</h1>\n");
+            .Append("<h1 class=\"page-title\">").Append(Encode(pullRequest.Title))
+            .Append(pullRequest.IsDraft ? " <span class=\"tag\">Draft</span>" : string.Empty)
+            .Append(pullRequest.MergeStatus == "conflicts" ? " <span class=\"tag tag-high\">Conflicts</span>" : string.Empty)
+            .Append("</h1>\n");
 
         html.Append("<p class=\"report-links\">");
         if (Uri.TryCreate(pullRequest.Url, UriKind.Absolute, out var url) && (url.Scheme == Uri.UriSchemeHttps || url.Scheme == Uri.UriSchemeHttp))

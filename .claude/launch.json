@@ -10,8 +10,8 @@
     {
       "name": "tray",
       "runtimeExecutable": "src/CodebaseReviewTool.Host/bin/Debug/net10.0-windows/CodebaseReviewTool.Host.exe",
-      "runtimeArgs": [],
-      "port": 5210
+      "runtimeArgs": ["--Database:Path=%LOCALAPPDATA%\\CodebaseReviewTool-DEV\\reviews.db", "--Kestrel:Endpoints:Http:Url=http://localhost:5211"],
+      "port": 5211
     }
   ]
 }

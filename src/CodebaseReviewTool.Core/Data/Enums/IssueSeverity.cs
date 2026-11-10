@@ -1,6 +1,6 @@
 namespace CodebaseReviewTool.Core.Data.Enums;
 
-/// <summary>Severity of an <see cref="Entities.Issue"/>, as the structured JSON output names it. Stored as text.</summary>
+/// <summary>Severity of an <see cref="Entities.Issue"/>, as the structured JSON output names it. Stored as int.</summary>
 public enum IssueSeverity
 {
     Critical,

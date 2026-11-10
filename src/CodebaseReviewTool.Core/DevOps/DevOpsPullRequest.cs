@@ -40,6 +40,14 @@ public sealed class DevOpsPullRequest
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
+    /// <summary>True while the pull request is a draft, i.e. not yet ready for review.</summary>
+    [JsonPropertyName("isDraft")]
+    public bool IsDraft { get; set; }
+
+    /// <summary>DevOps merge status text: <c>succeeded</c>, <c>conflicts</c>, <c>queued</c>, <c>failure</c> or <c>notSet</c>.</summary>
+    [JsonPropertyName("mergeStatus")]
+    public string MergeStatus { get; set; } = string.Empty;
+
     /// <summary>UTC.</summary>
     [JsonPropertyName("creationDate")]
     public DateTime CreationDate { get; set; }
