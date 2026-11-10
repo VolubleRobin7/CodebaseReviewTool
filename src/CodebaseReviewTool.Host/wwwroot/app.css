@@ -962,6 +962,24 @@ body.modal-open {
     border-color: currentColor;
 }
 
+/* A small circled question mark whose title explains a caveat on the value beside it. */
+.hint {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    margin-left: 6px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--faint);
+    vertical-align: middle;
+    cursor: default;
+}
+
 .pr-meta {
     display: flex;
     flex-wrap: wrap;

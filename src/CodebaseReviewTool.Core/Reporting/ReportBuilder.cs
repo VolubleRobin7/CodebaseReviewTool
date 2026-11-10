@@ -56,6 +56,19 @@ public static class ReportBuilder
         AppendTerm(html, "Branch", $"<span class=\"mono\">{Encode(pullRequest.SourceBranch)}</span>");
         AppendTerm(html, "Commit", $"<span class=\"mono\">{Encode(report.ShortCommit)}</span>");
         AppendTerm(html, "Reviewed", Encode(report.ReviewedText));
+        if (report.TotalDurationMs is { } duration)
+        {
+            AppendTerm(html, "Duration", Encode(ReportFormat.Duration(duration)));
+        }
+
+        if (report.TotalCostUsd is { } cost)
+        {
+            var hint = report.StepsWithUnknownCost > 0
+                ? $" <span class=\"hint\" role=\"img\" title=\"{Encode(ReportFormat.UnknownCostNote(report.StepsWithUnknownCost))}\">?</span>"
+                : string.Empty;
+            AppendTerm(html, "Cost", Encode(ReportFormat.Cost(cost)) + hint);
+        }
+
         html.Append("</dl>\n<div class=\"report-counts\">\n");
 
         foreach (var severity in ReportFormat.Severities)

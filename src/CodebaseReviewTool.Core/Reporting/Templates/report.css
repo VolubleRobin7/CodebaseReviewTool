@@ -29,6 +29,7 @@ a:hover { text-decoration: underline; }
 .page-title { margin: 0; font-size: 40px; font-weight: 500; letter-spacing: -0.028em; line-height: 1.1; text-wrap: pretty; }
 .report-links { margin: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; color: var(--faint); }
 .tag-high { color: var(--high); border-color: currentColor; }
+.hint { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 6px; border: 1px solid currentColor; border-radius: 50%; font-size: 10px; font-weight: 600; line-height: 1; color: var(--faint); vertical-align: middle; cursor: default; }
 .tag { display: inline-block; padding: 2px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font-family: var(--sans); font-size: 11.5px; font-weight: 500; letter-spacing: 0.02em; line-height: 1.5; color: var(--muted); vertical-align: middle; white-space: nowrap; }
 .kv-stack { margin: 0; display: flex; flex-direction: column; gap: 16px; font-size: 13.5px; }
 .kv-stack > div { display: flex; flex-direction: column; gap: 4px; }

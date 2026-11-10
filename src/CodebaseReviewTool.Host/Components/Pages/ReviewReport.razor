@@ -43,6 +43,33 @@
                         <dt>Reviewed</dt>
                         <dd>@report.ReviewedText</dd>
                     </div>
+                    @if (report.TotalDurationMs is { } duration)
+                    {
+                        <div>
+                            <dt>Duration</dt>
+                            <dd>@ReportFormat.Duration(duration)</dd>
+                        </div>
+                    }
+                    @if (report.TotalCostUsd is { } cost)
+                    {
+                        <div>
+                            <dt>Cost</dt>
+                            <dd>
+                                @ReportFormat.Cost(cost)
+                                @if (report.StepsWithUnknownCost > 0)
+                                {
+                                    <span aria-label="@ReportFormat.UnknownCostNote(report.StepsWithUnknownCost)"
+                                          class="hint"
+                                          role="img"
+                                          title="@ReportFormat.UnknownCostNote(report.StepsWithUnknownCost)">
+
+                                        ?
+
+                                    </span>
+                                }
+                            </dd>
+                        </div>
+                    }
                 </dl>
 
                 <div class="report-counts">

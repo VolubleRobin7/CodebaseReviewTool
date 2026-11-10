@@ -37,6 +37,12 @@ public static class ReportFormat
     /// <summary>Formats a cost in US dollars to the cent, or to four decimals for a run that cost less than a cent.</summary>
     public static string Cost(double usd) => usd.ToString(usd is > 0 and < 0.01 ? "$0.0000" : "$0.00", CultureInfo.InvariantCulture);
 
+    /// <summary>The tooltip beside a review's cost when <paramref name="steps"/> finished steps reported none.</summary>
+    public static string UnknownCostNote(int steps) =>
+        steps == 1
+            ? "The cost may be higher: 1 step stopped before reporting what it spent."
+            : $"The cost may be higher: {steps} steps stopped before reporting what they spent.";
+
     /// <summary>The CSS class that colours a severity (<c>sev-high</c> and so on).</summary>
     public static string SeverityClass(IssueSeverity severity) => "sev-" + severity.ToString().ToLowerInvariant();
 

@@ -515,8 +515,8 @@ Candidates, ordered by value; pick after Phases 0–6 are in use.
   uses port 5211 and its own database, and the single-instance mutex is keyed on the
   port.
 - Live step progress on the report page using `--output-format stream-json`.
-- Cost and duration per step and per review (from Claude's result JSON) on the Reviews
-  page.
+- Done: cost and duration per step (Run details) and per review (the report's aside, as
+  running totals while the review is in progress), from the agent's result JSON.
 - Compare two reviews of the same PR (issues added/resolved between iterations).
 - Health and status endpoints beyond `/api/health` (the API growth path).
 - Opt-in auto-review on new PR iterations (explicitly out of scope now).

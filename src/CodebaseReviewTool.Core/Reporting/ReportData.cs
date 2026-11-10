@@ -80,6 +80,25 @@ public sealed partial class ReportData
         _ => "In progress",
     };
 
+    /// <summary>
+    /// What the agent runs of this review are known to have cost so far, in US dollars; null before any step has
+    /// finished. Steps counted in <see cref="StepsWithUnknownCost"/> add nothing, so the real figure may be higher.
+    /// </summary>
+    public double? TotalCostUsd => Review.StepRuns.Any(IsFinished)
+        ? Review.StepRuns.Sum(r => r.CostUsd ?? 0)
+        : null;
+
+    /// <summary>
+    /// Finished steps that reported no cost: a run stopped on its timeout is killed before the agent writes its
+    /// result, so what it spent is unknown.
+    /// </summary>
+    public int StepsWithUnknownCost => Review.StepRuns.Count(r => IsFinished(r) && r.CostUsd is null);
+
+    /// <summary>How long the agent runs of this review have taken so far; null before any step has finished.</summary>
+    public long? TotalDurationMs => Review.StepRuns.Any(r => r.DurationMs is not null)
+        ? Review.StepRuns.Sum(r => r.DurationMs ?? 0)
+        : null;
+
     /// <summary>The reviewed commit, abbreviated.</summary>
     public string ShortCommit => Review.SourceCommit.Length > 10 ? Review.SourceCommit[..10] : Review.SourceCommit;
 
@@ -132,6 +151,8 @@ public sealed partial class ReportData
     public int CountOf(IssueSeverity severity) => Issues.Count(i => i.Severity == severity);
 
     private ReviewStepRun? SucceededRun(int index) => RunAt(index) is { State: StepRunState.Succeeded } run ? run : null;
+
+    private static bool IsFinished(ReviewStepRun run) => run.State is StepRunState.Succeeded or StepRunState.Failed;
 
     private int IndexOf(int step)
     {
