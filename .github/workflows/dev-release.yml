@@ -1,0 +1,72 @@
+name: Development Zip Release
+
+run-name: Development Zip package build by @${{ github.triggering_actor }}
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - development
+
+concurrency:
+  group: dev-zip-release
+  cancel-in-progress: false
+
+jobs:
+  dev-release:
+    name: Zip Package and Release
+
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Branch
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build and Package the Zip
+        run: dotnet publish src/CodebaseReviewTool.Host -p:PublishProfile=Package
+
+      - name: Replace the Development Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP_PATH: src/CodebaseReviewTool.Host/bin/Release/CodebaseReviewTool.zip
+        run: |
+          # The short commit SHA.
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          # The current UTC time in a readable format.
+          $built = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')
+          # The tag of the release marked Latest (pre-releases are never Latest). Null if there is none.
+          $latestTag = gh release view --json tagName --jq .tagName 2>$null
+          if ($LASTEXITCODE -ne 0) { $latestTag = $null }
+          # The notes header.
+          $since = if ($latestTag) { "Changes since $latestTag are listed below." } else { "Changes since the project's inception are listed below." }
+          $notes = "Latest build of the development branch. This is not a versioned release and bugs should be expected.`n`nBuilt from $short on $built UTC. $since"
+
+          # Check if a dev release already exists, and delete it if it does.
+          gh release view dev *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete dev --cleanup-tag --yes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          # Set up the arguments for the release command.
+          $arguments = @(
+            'release', 'create', 'dev', $env:ZIP_PATH,
+            '--prerelease',
+            '--target', $env:GITHUB_SHA,
+            '--title', "Dev build ($short)",
+            '--notes', $notes,
+            '--generate-notes'
+          )
+          if ($latestTag) { $arguments += @('--notes-start-tag', $latestTag) }
+
+          # Create the dev release.
+          gh @arguments
+          exit $LASTEXITCODE
