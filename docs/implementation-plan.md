@@ -518,6 +518,16 @@ Candidates, ordered by value; pick after Phases 0–6 are in use.
 - Done: cost and duration per step (Run details) and per review (the report's aside, as
   running totals while the review is in progress), from the agent's result JSON.
 - Compare two reviews of the same PR (issues added/resolved between iterations).
+- Shared context between steps. Each step is a fresh agent session today, by design.
+  Options weighed on 2026-11-10: resume the previous step's session (richest context,
+  but mixing models per step anchors the later model on the earlier one's answer and
+  forfeits the model-scoped prompt cache), or expose earlier outputs as placeholders
+  such as `{{STEP_OUTPUT:n}}` (model-neutral, re-run friendly; preferred if taken).
+- Parallel steps. Nothing but the orchestrator's loop keeps steps sequential, since
+  they share only the read-only worktree. Running them together cuts a review to its
+  slowest step but drops stop-on-first-failure and the "step N of M" display; with
+  placeholders it needs a derived dependency rule (a step waits for the steps whose
+  output it quotes).
 - Health and status endpoints beyond `/api/health` (the API growth path).
 - Opt-in auto-review on new PR iterations (explicitly out of scope now).
 

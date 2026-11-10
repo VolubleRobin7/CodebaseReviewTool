@@ -5,22 +5,100 @@ Instead of diffs it produces a templated report: a text summary, an architecture
 and a table of issues, each produced by a user-configured Claude Code prompt or skill run
 against a git worktree of the PR's source branch.
 
-## Prerequisites
+## Installation
 
-- .NET 10 SDK
+Download `CodebaseReviewTool.zip` from the latest tagged release on the
+[Releases page](https://github.com/VolubleRobin7/CodebaseReviewTool/releases) and unzip it anywhere.
+The "Dev build" pre-release at the top of that page is the current state of the development branch; take a
+numbered release unless you want to try unreleased changes.
+
+### Prerequisites
+
+- Windows 10 or 11 (the tool lives in the system tray)
+- The .NET 10 Desktop Runtime and ASP.NET Core Runtime (the exe says which is missing if either is not installed)
 - git
 - Claude Code CLI, signed in (its path is set in `appsettings.json` under `Claude:ExecutablePath`)
 - An Azure DevOps personal access token with **Code (Read)** scope
 - Existing local clones of the repositories to review (the tool fetches but never clones)
 
-## Machine-specific configuration (user-secrets)
+### First Run
+
+Before running the tool for the first time, you will need to fill in the `appsettings.json` in the zip
+with any of your specific information, such as your remote repositories' PAT, the local paths to your 
+repositories, and the root path for the worktrees.
+
+The tool will not start if any of the required configuration values are missing or still set to their 
+placeholder values. The configuration page (`/configuration`) will show the effective configuration
+and any issues with the setup.
+
+## Using the tool
+
+Run `CodebaseReviewTool.Host.exe`. It starts to the system tray with no window; a left click on the
+tray icon opens the UI at http://localhost:5210, and the right-click menu has Open UI, the number of
+reviews running, Pause polling and Exit. Turn on "Run at login" under Tray on the Configuration page
+to have it start with Windows.
+
+The home page lists the open pull requests of the configured repositories, read from your repository remote
+at startup and then on a timer, with Draft and Conflicts tags where the remote reports them. "Start
+review" queues a review of a pull request. Each review gets its own git worktree, detached at the
+pull request's source commit under the configured worktree root, and then runs the flow steps one
+after another, each as a headless Claude Code run inside that worktree with a read-only tool
+allowlist. By default the flow has three steps: a plain-text summary, an architecture diagram and a
+table of issues with severities and suggested fixes.
+
+When a review finishes, the row shows the issue count and links to the report. The report has the
+summary, the diagram, the issues with severity filters, the review's duration and cost, a
+collapsible "Run details" per step, the pull request's earlier reviews, and a "Download report"
+button that saves the whole thing as a single HTML file. "Review again" reviews the pull request's
+latest commit as a new review, keeping the earlier reports; a failed step can be re-run from the
+report.
+
+The Configuration page holds the flow: each step has a name, a prompt (or a Claude Code skill,
+started with `/skill-name`), a model and a timeout, with "Reset to default" restoring the shipped
+prompt and a Preview that renders the prompt against a real pull request. Below the flow are checks
+for Claude, git, DevOps and each repository, the list of repositories, a link to the Worktrees page
+where review worktrees can be removed, and the effective configuration.
+
+### What it sends, and what it costs
+
+- **Azure DevOps** is only ever read: the tool lists pull requests and their metadata. It never
+  comments, votes or changes anything. The personal access token is stored in plain text in
+  `appsettings.json`, so keep that folder private.
+- **The code under review** is read by Claude Code from the worktree, which means it is sent to
+  Anthropic under your own Claude Code account, the same as running `claude` in that folder
+  yourself. The tool allowlist limits each run to reading files and running read-only git commands.
+- **Each review costs Claude Code usage**, one headless run per step. The report shows what each
+  step cost and the review's total; a small pull request comes to roughly a dollar.
+- **Everything else stays on your machine**: the database in `%LOCALAPPDATA%\CodebaseReviewTool`,
+  the worktrees under `Git:WorktreeRoot`, and the UI, which only listens on localhost.
+
+## Updating and uninstalling
+
+To update, exit the running copy from the tray icon, unzip the new build over the old one and keep
+your existing `appsettings.json`. Database changes are applied on the next start.
+
+To uninstall, turn off "Run at login" on the Configuration page, exit from the tray icon and delete
+the folder. The database in `%LOCALAPPDATA%\CodebaseReviewTool` and any remaining review worktrees
+under `Git:WorktreeRoot` are also left for you to delete.
+
+## AI Disclaimer
+
+This tool has been built with a majority of the code written by AI. Architecture and design were
+brainstormed with the AI, the code is almost entirely generated by it, and each phase was run and
+tested by hand before it was committed.
+
+Eventually, I would like to go through and refactor the code and architecture to be written by humans.
+
+## Development
+
+### Machine-specific configuration (user-secrets)
 
 `appsettings.json` holds only placeholders. For development, everything machine-specific lives
 in .NET user-secrets, which the app reads in the Development environment only (Visual Studio
 and `dotnet run`; the secrets id is already in the Host csproj). Set the values with Visual
 Studio's "Manage User Secrets" or
-`dotnet user-secrets set "<key>" "<value>" --project src/CodebaseReviewTool.Host`
-(e.g. key `Repositories:0:LocalPath`); the result should look like:
+`dotnet user-secrets set "<key>" "<value>" --project src/CodebaseReviewTool.Host`; 
+the result should look like:
 
 ```json
 {
@@ -32,7 +110,10 @@ Studio's "Manage User Secrets" or
     "WorktreeRoot": "C:\\Repos\\_review-worktrees"
   },
   "Repositories": [
-    { "DisplayName": "My Repo", "LocalPath": "C:\\Repos\\MyRepo" }
+    { 
+      "DisplayName": "My Repo", 
+      "LocalPath": "C:\\Repos\\MyRepo" 
+    }
   ]
 }
 ```
@@ -48,13 +129,13 @@ unset to have the tool detect the newest version the server supports (TFS 2017 u
 Set `DevOps:UseDefaultCredentials` to `true` to authenticate to an on-prem server with your
 Windows account instead of a PAT (the PAT may then be left empty).
 
-An installed copy (see Install below) reads no user-secrets: it is configured by editing the
-`appsettings.json` beside its exe with the same keys.
+An installed copy (see "Installing from source" below) reads no user-secrets: it is configured by
+editing the `appsettings.json` beside its exe with the same keys.
 
 The Configuration page (`/configuration`) shows the effective configuration (the PAT only as
 "set") and has checks for Claude, git, DevOps and each repository.
 
-## Run
+### Run
 
 ```
 dotnet run --project src/CodebaseReviewTool.Host
@@ -76,15 +157,16 @@ Each review gets its own git worktree, detached at the pull request's source com
 the clone and creates it. Worktrees are removed from the Worktrees page (linked from
 Configuration) or automatically `Git:AutoCleanupAfterDays` days after a review finishes.
 
-Once the worktree is ready the review runs the three flow steps (summary, architecture diagram,
-issues) one after another, each as its own headless Claude Code CLI run (`claude -p`) inside the
+Once the worktree is ready the review runs the flow steps one after another, each as its own 
+headless Claude Code CLI run (`claude -p`) inside the
 worktree with the read-only tool allowlist from `Claude:AllowedTools`. The prompts are edited on
 the Configuration page under "Flow steps"; each step can also pick a model and a timeout, and
 "Reset to default" restores the shipped prompt. Saved changes apply to reviews started afterwards.
 
-## Install
+### Installing from source
 
-The tool is meant to live in the tray rather than in an IDE. To install or update it:
+The release zip is built from the `Package` profile below. To install or update a copy on this machine
+straight from the source tree instead:
 
 ```
 dotnet publish src/CodebaseReviewTool.Host -p:PublishProfile=Install
