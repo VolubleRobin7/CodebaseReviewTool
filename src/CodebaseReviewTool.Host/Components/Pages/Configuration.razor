@@ -35,272 +35,336 @@
 <div class="page-head">
     <div class="page-head-text">
         <h1 class="page-title">Review configuration</h1>
-        <p class="page-lede">These prompts run in order for every review. Each step produces one section of the report. Changes apply to reviews started after you save.</p>
-    </div>
-
-    <div class="page-actions">
-        <button @onclick="DiscardAsync"
-                class="btn btn-secondary"
-                disabled="@(!IsDirty || _saving)"
-                type="button">
-
-            Discard
-
-        </button>
-
-        <button @onclick="SaveAsync"
-                class="btn btn-primary"
-                disabled="@(!IsDirty || !IsValid || _saving)"
-                type="button">
-
-            @(IsDirty ? "Save changes" : "Saved")
-
-        </button>
+        <p class="page-lede">The review prompts, the environment the tool runs against and how it behaves on this machine.</p>
     </div>
 </div>
 
-<section class="section">
-    <div class="section-head">
-        <h2 class="section-title">Flow steps</h2>
-    </div>
-
-    @if (_saveError is not null)
+<div aria-label="Configuration sections"
+     class="tabs"
+     role="tablist">
+    @foreach (var tab in _tabs)
     {
-        <p class="step-invalid">@_saveError</p>
-    }
-
-    @if (_drafts.Count == 0)
-    {
-        <p class="empty">The flow has no steps.</p>
-    }
-    else
-    {
-        <ol class="step-rail">
-            @for (var i = 0; i < _drafts.Count; i++)
-            {
-                <StepEditor @key="_drafts[i].Step"
-                            DefaultModel="@ClaudeOptions.Value.DefaultModel"
-                            DefaultTimeoutMinutes="@ClaudeOptions.Value.TimeoutMinutes"
-                            Draft="_drafts[i]"
-                            Index="i"
-                            IsLast="@(i == _drafts.Count - 1)"
-                            Models="ClaudeOptions.Value.Models"
-                            OnChanged="StateHasChanged"
-                            PullRequests="_pullRequests" />
-            }
-        </ol>
-    }
-</section>
-
-<section class="section">
-    <div class="section-head">
-        <h2 class="section-title">Checks</h2>
-
-        <button @onclick="RunAllChecksAsync"
-                class="btn btn-secondary"
-                disabled="@AnyRunning"
+        <button @onclick="() => _activeTab = tab.Key"
+                aria-controls="@PanelId(tab.Key)"
+                aria-selected="@(tab.Key == _activeTab ? "true" : "false")"
+                class="@(tab.Key == _activeTab ? "active tab" : "tab")"
+                id="@TabId(tab.Key)"
+                role="tab"
                 type="button">
 
-            Run all checks
+            @tab.Label
+
+            @if (tab.Key == ConfigurationTab.Steps && IsDirty)
+            {
+                <span aria-label="unsaved changes"
+                      class="tab-dirty"
+                      role="img"
+                      title="Unsaved changes"></span>
+            }
 
         </button>
-    </div>
-    <div class="rows">
-        @foreach (var check in _checks)
+    }
+</div>
+
+<div aria-labelledby="@TabId(ConfigurationTab.Steps)"
+     class="tab-panel"
+     hidden="@(_activeTab != ConfigurationTab.Steps)"
+     id="@PanelId(ConfigurationTab.Steps)"
+     role="tabpanel">
+
+    <section class="section">
+        <div class="section-head">
+            <h2 class="section-title">Flow steps</h2>
+
+            <div class="page-actions">
+                <button @onclick="DiscardAsync"
+                        class="btn btn-secondary"
+                        disabled="@(!IsDirty || _saving)"
+                        type="button">
+
+                    Discard
+
+                </button>
+
+                <button @onclick="SaveAsync"
+                        class="btn btn-primary"
+                        disabled="@(!IsDirty || !IsValid || _saving)"
+                        type="button">
+
+                    @(IsDirty ? "Save changes" : "Saved")
+
+                </button>
+            </div>
+        </div>
+
+        <p class="section-note">These prompts run in order for every review. Each step produces one section of the report. Changes apply to reviews started after you save.</p>
+
+        @if (_saveError is not null)
         {
+            <p class="step-invalid">@_saveError</p>
+        }
+
+        @if (_drafts.Count == 0)
+        {
+            <p class="empty">The flow has no steps.</p>
+        }
+        else
+        {
+            <ol class="step-rail">
+                @for (var i = 0; i < _drafts.Count; i++)
+                {
+                    <StepEditor @key="_drafts[i].Step"
+                                DefaultModel="@ClaudeOptions.Value.DefaultModel"
+                                DefaultTimeoutMinutes="@ClaudeOptions.Value.TimeoutMinutes"
+                                Draft="_drafts[i]"
+                                Index="i"
+                                IsLast="@(i == _drafts.Count - 1)"
+                                Models="ClaudeOptions.Value.Models"
+                                OnChanged="StateHasChanged"
+                                PullRequests="_pullRequests" />
+                }
+            </ol>
+        }
+    </section>
+
+</div>
+
+<div aria-labelledby="@TabId(ConfigurationTab.Environment)"
+     class="tab-panel"
+     hidden="@(_activeTab != ConfigurationTab.Environment)"
+     id="@PanelId(ConfigurationTab.Environment)"
+     role="tabpanel">
+
+    <section class="section">
+        <div class="section-head">
+            <h2 class="section-title">Checks</h2>
+
+            <button @onclick="RunAllChecksAsync"
+                    class="btn btn-secondary"
+                    disabled="@AnyRunning"
+                    type="button">
+
+                Run all checks
+
+            </button>
+        </div>
+        <div class="rows">
+            @foreach (var check in _checks)
+            {
+                <div class="row check-row">
+                    <span>@check.Name</span>
+                    <span>
+                        @switch (check.State)
+                        {
+                            case CheckState.Running:
+                                <span class="check-state check-running">Running…</span>
+                                break;
+
+                            case CheckState.Passed:
+                                <span class="check-state check-passed">Passed</span>
+                                break;
+
+                            case CheckState.Failed:
+                                <span class="check-state check-failed">Failed</span>
+                                break;
+
+                            default:
+                                <span class="faint">Not run</span>
+                                break;
+                        }
+
+                        @if (!string.IsNullOrEmpty(check.Detail))
+                        {
+                            <span class="row-detail">@check.Detail</span>
+                        }
+                    </span>
+                    <span class="check-action">
+                        <button @onclick="() => RunCheckAsync(check)"
+                                class="btn btn-link"
+                                disabled="@check.IsRunning"
+                                type="button">
+
+                            Check
+
+                        </button>
+                    </span>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="section-head">
+            <h2 class="section-title">Repositories</h2>
+            <span class="count">@RepositoryRegistry.Repositories.Count</span>
+        </div>
+        <div class="rows">
+            <div class="row-head repo-row">
+                <span>Name</span>
+                <span>Local path</span>
+                <span>Remote</span>
+                <span>Organisation / project / repository</span>
+            </div>
+            @foreach (var repository in RepositoryRegistry.Repositories)
+            {
+                <div class="row repo-row">
+                    <span>
+                        @repository.DisplayName
+                        <span class="row-detail">@repository.Key</span>
+                    </span>
+                    <span class="mono">@repository.LocalPath</span>
+                    <span>@repository.RemoteName</span>
+                    <span>@repository.Organization / @repository.Project / @repository.Repository</span>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="section-head">
+            <h2 class="section-title">Worktrees</h2>
+
+            <a class="btn btn-secondary"
+               href="worktrees">
+
+                Manage worktrees
+
+            </a>
+        </div>
+        <p class="section-note">Created under <span class="mono">@GitOptions.Value.WorktreeRoot</span> and removed automatically @GitOptions.Value.AutoCleanupAfterDays days after a review finishes.</p>
+    </section>
+
+    <section class="section">
+        <div class="section-head">
+            <h2 class="section-title">Environment</h2>
+        </div>
+
+        <p class="section-note">Read from appsettings.json and user-secrets; edit those files and restart to change it.</p>
+
+        <dl class="kv">
+            <dt>Database</dt>
+            <dd class="mono">@DatabaseOptions.Value.Path</dd>
+
+            <dt>Claude executable</dt>
+            <dd class="mono">@ClaudeOptions.Value.ExecutablePath</dd>
+            <dt>Claude default model</dt>
+            <dd>@ClaudeOptions.Value.DefaultModel</dd>
+            <dt>Claude timeout</dt>
+            <dd>@ClaudeOptions.Value.TimeoutMinutes minutes</dd>
+            <dt>Claude max turns</dt>
+            <dd>@ClaudeOptions.Value.MaxTurns</dd>
+            <dt>Claude allowed tools</dt>
+            <dd class="mono">@string.Join("  ", ClaudeOptions.Value.AllowedTools)</dd>
+
+            <dt>Git executable</dt>
+            <dd class="mono">@GitOptions.Value.ExecutablePath</dd>
+            <dt>Worktree root</dt>
+            <dd class="mono">@GitOptions.Value.WorktreeRoot</dd>
+            <dt>Worktree auto-cleanup</dt>
+            <dd>after @GitOptions.Value.AutoCleanupAfterDays days</dd>
+            <dt>Fetch before review</dt>
+            <dd>@YesNo(GitOptions.Value.FetchBeforeReview)</dd>
+
+            <dt>DevOps organisation URL</dt>
+            <dd class="mono">@DevOpsOptions.Value.OrganizationUrl</dd>
+            <dt>DevOps poll interval</dt>
+            <dd>@DevOpsOptions.Value.PollIntervalSeconds seconds</dd>
+            <dt>DevOps auth mode</dt>
+            <dd>@DevOpsOptions.Value.AuthMode</dd>
+            <dt>DevOps PAT</dt>
+            <dd>@PatDescription</dd>
+            <dt>DevOps API version</dt>
+            <dd>@ApiVersionDescription</dd>
+
+            <dt>Max concurrent reviews</dt>
+            <dd>@ReviewOptions.Value.MaxConcurrent</dd>
+
+            <dt>Tray enabled</dt>
+            <dd>@YesNo(TrayOptions.Value.Enabled)</dd>
+            <dt>Open browser on start</dt>
+            <dd>@YesNo(TrayOptions.Value.OpenBrowserOnStart)</dd>
+        </dl>
+    </section>
+
+</div>
+
+<div aria-labelledby="@TabId(ConfigurationTab.System)"
+     class="tab-panel"
+     hidden="@(_activeTab != ConfigurationTab.System)"
+     id="@PanelId(ConfigurationTab.System)"
+     role="tabpanel">
+
+    <section class="section">
+        <div class="section-head">
+            <h2 class="section-title">Tray</h2>
+        </div>
+        <p class="section-note">The tray icon opens this UI, shows how many reviews are running and announces each one that finishes.</p>
+
+        @if (_trayError is not null)
+        {
+            <p class="step-invalid">@_trayError</p>
+        }
+
+        <div class="rows">
             <div class="row check-row">
-                <span>@check.Name</span>
+                <span>Run at login</span>
+
                 <span>
-                    @switch (check.State)
-                    {
-                        case CheckState.Running:
-                            <span class="check-state check-running">Running…</span>
-                            break;
-
-                        case CheckState.Passed:
-                            <span class="check-state check-passed">Passed</span>
-                            break;
-
-                        case CheckState.Failed:
-                            <span class="check-state check-failed">Failed</span>
-                            break;
-
-                        default:
-                            <span class="faint">Not run</span>
-                            break;
-                    }
-
-                    @if (!string.IsNullOrEmpty(check.Detail))
-                    {
-                        <span class="row-detail">@check.Detail</span>
-                    }
+                    <span class="@(_runAtLogin ? "check-passed check-state" : "check-state faint")">@(_runAtLogin ? "On" : "Off")</span>
+                    <span class="row-detail">@StartupShortcut.ShortcutPath</span>
                 </span>
+
                 <span class="check-action">
-                    <button @onclick="() => RunCheckAsync(check)"
+                    <button @onclick="ToggleRunAtLoginAsync"
                             class="btn btn-link"
-                            disabled="@check.IsRunning"
+                            disabled="@_changingRunAtLogin"
                             type="button">
 
-                        Check
+                        @(_runAtLogin ? "Turn off" : "Turn on")
 
                     </button>
                 </span>
             </div>
-        }
-    </div>
-</section>
 
-<section class="section">
-    <div class="section-head">
-        <h2 class="section-title">Repositories</h2>
-        <span class="count">@RepositoryRegistry.Repositories.Count</span>
-    </div>
-    <div class="rows">
-        <div class="row-head repo-row">
-            <span>Name</span>
-            <span>Local path</span>
-            <span>Remote</span>
-            <span>Organisation / project / repository</span>
-        </div>
-        @foreach (var repository in RepositoryRegistry.Repositories)
-        {
-            <div class="row repo-row">
+            <div class="row check-row">
+                <span>DevOps polling</span>
+
                 <span>
-                    @repository.DisplayName
-                    <span class="row-detail">@repository.Key</span>
+                    <span class="@(PollControl.IsPaused ? "check-running check-state" : "check-passed check-state")">@(PollControl.IsPaused ? "Paused" : "Running")</span>
+                    <span class="row-detail">While paused only a manual refresh of the pull request list polls. Resets on restart.</span>
                 </span>
-                <span class="mono">@repository.LocalPath</span>
-                <span>@repository.RemoteName</span>
-                <span>@repository.Organization / @repository.Project / @repository.Repository</span>
+
+                <span class="check-action">
+                    <button @onclick="() => PollControl.SetPaused(!PollControl.IsPaused)"
+                            class="btn btn-link"
+                            type="button">
+
+                        @(PollControl.IsPaused ? "Resume" : "Pause")
+
+                    </button>
+                </span>
+
             </div>
-        }
-    </div>
-</section>
-
-<section class="section">
-    <div class="section-head">
-        <h2 class="section-title">Worktrees</h2>
-
-        <a class="btn btn-secondary"
-           href="worktrees">
-
-            Manage worktrees
-
-        </a>
-    </div>
-    <p class="section-note">Created under <span class="mono">@GitOptions.Value.WorktreeRoot</span> and removed automatically @GitOptions.Value.AutoCleanupAfterDays days after a review finishes.</p>
-</section>
-
-<section class="section">
-    <div class="section-head">
-        <h2 class="section-title">Tray</h2>
-    </div>
-    <p class="section-note">The tray icon opens this UI, shows how many reviews are running and announces each one that finishes.</p>
-
-    @if (_trayError is not null)
-    {
-        <p class="step-invalid">@_trayError</p>
-    }
-
-    <div class="rows">
-        <div class="row check-row">
-            <span>Run at login</span>
-
-            <span>
-                <span class="@(_runAtLogin ? "check-passed check-state" : "check-state faint")">@(_runAtLogin ? "On" : "Off")</span>
-                <span class="row-detail">@StartupShortcut.ShortcutPath</span>
-            </span>
-
-            <span class="check-action">
-                <button @onclick="ToggleRunAtLoginAsync"
-                        class="btn btn-link"
-                        disabled="@_changingRunAtLogin"
-                        type="button">
-
-                    @(_runAtLogin ? "Turn off" : "Turn on")
-
-                </button>
-            </span>
         </div>
+    </section>
 
-        <div class="row check-row">
-            <span>DevOps polling</span>
-
-            <span>
-                <span class="@(PollControl.IsPaused ? "check-running check-state" : "check-passed check-state")">@(PollControl.IsPaused ? "Paused" : "Running")</span>
-                <span class="row-detail">While paused only a manual refresh of the pull request list polls. Resets on restart.</span>
-            </span>
-
-            <span class="check-action">
-                <button @onclick="() => PollControl.SetPaused(!PollControl.IsPaused)"
-                        class="btn btn-link"
-                        type="button">
-
-                    @(PollControl.IsPaused ? "Resume" : "Pause")
-
-                </button>
-            </span>
-
-        </div>
-    </div>
-</section>
-
-<section class="section">
-    <div class="section-head">
-        <h2 class="section-title">Environment</h2>
-    </div>
-
-    <p class="section-note">Read from appsettings.json and user-secrets; edit those files and restart to change it.</p>
-
-    <dl class="kv">
-        <dt>Database</dt>
-        <dd class="mono">@DatabaseOptions.Value.Path</dd>
-
-        <dt>Claude executable</dt>
-        <dd class="mono">@ClaudeOptions.Value.ExecutablePath</dd>
-        <dt>Claude default model</dt>
-        <dd>@ClaudeOptions.Value.DefaultModel</dd>
-        <dt>Claude timeout</dt>
-        <dd>@ClaudeOptions.Value.TimeoutMinutes minutes</dd>
-        <dt>Claude max turns</dt>
-        <dd>@ClaudeOptions.Value.MaxTurns</dd>
-        <dt>Claude allowed tools</dt>
-        <dd class="mono">@string.Join("  ", ClaudeOptions.Value.AllowedTools)</dd>
-
-        <dt>Git executable</dt>
-        <dd class="mono">@GitOptions.Value.ExecutablePath</dd>
-        <dt>Worktree root</dt>
-        <dd class="mono">@GitOptions.Value.WorktreeRoot</dd>
-        <dt>Worktree auto-cleanup</dt>
-        <dd>after @GitOptions.Value.AutoCleanupAfterDays days</dd>
-        <dt>Fetch before review</dt>
-        <dd>@YesNo(GitOptions.Value.FetchBeforeReview)</dd>
-
-        <dt>DevOps organisation URL</dt>
-        <dd class="mono">@DevOpsOptions.Value.OrganizationUrl</dd>
-        <dt>DevOps poll interval</dt>
-        <dd>@DevOpsOptions.Value.PollIntervalSeconds seconds</dd>
-        <dt>DevOps auth mode</dt>
-        <dd>@DevOpsOptions.Value.AuthMode</dd>
-        <dt>DevOps PAT</dt>
-        <dd>@PatDescription</dd>
-        <dt>DevOps API version</dt>
-        <dd>@ApiVersionDescription</dd>
-
-        <dt>Max concurrent reviews</dt>
-        <dd>@ReviewOptions.Value.MaxConcurrent</dd>
-
-        <dt>Tray enabled</dt>
-        <dd>@YesNo(TrayOptions.Value.Enabled)</dd>
-        <dt>Open browser on start</dt>
-        <dd>@YesNo(TrayOptions.Value.OpenBrowserOnStart)</dd>
-    </dl>
-</section>
+</div>
 
 @code {
     private static readonly TimeSpan _checkTimeout = TimeSpan.FromSeconds(60);
 
+    private static readonly IReadOnlyList<(ConfigurationTab Key, string Label)> _tabs =
+    [
+        (ConfigurationTab.Steps, "Steps"),
+        (ConfigurationTab.Environment, "Environment"),
+        (ConfigurationTab.System, "System"),
+    ];
+
     private readonly List<Check> _checks = [];
+
+    // Every panel stays rendered and only the active one is shown, so switching tabs keeps unsaved step edits, each
+    // step editor's own state and any checks still running.
+    private ConfigurationTab _activeTab = ConfigurationTab.Steps;
 
     private List<FlowStepDraft> _drafts = [];
     private List<PullRequest> _pullRequests = [];
@@ -527,6 +591,17 @@
     }
 
     private static string YesNo(bool value) => value ? "Yes" : "No";
+
+    private static string TabId(ConfigurationTab tab) => $"config-tab-{tab.ToString().ToLowerInvariant()}";
+
+    private static string PanelId(ConfigurationTab tab) => $"config-panel-{tab.ToString().ToLowerInvariant()}";
+
+    private enum ConfigurationTab
+    {
+        Steps,
+        Environment,
+        System,
+    }
 
     private enum CheckState
     {
