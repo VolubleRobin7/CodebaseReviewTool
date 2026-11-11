@@ -46,7 +46,7 @@ jobs:
           $latestTag = gh release view --json tagName --jq .tagName 2>$null
           if ($LASTEXITCODE -ne 0) { $latestTag = $null }
           # The notes header.
-          $since = if ($latestTag) { "Changes since $latestTag are listed below." } else { "Changes since the project's inception are listed below." }
+          $since = if ($latestTag) { "Changes since $latestTag are listed below." } else { "Recent changes are listed below." }
           $notes = "Latest build of the development branch. This is not a versioned release and bugs should be expected.`n`nBuilt from $short on $built UTC. $since"
 
           # Check if a dev release already exists, and delete it if it does.
