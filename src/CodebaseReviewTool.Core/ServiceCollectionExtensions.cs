@@ -69,6 +69,10 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<ReviewQueueService>();
         services.AddHostedService<WorktreeCleanupService>();
 
+        services.AddSingleton<ClaudeUsageMonitor>();
+        services.AddSingleton<IClaudeUsage>(sp => sp.GetRequiredService<ClaudeUsageMonitor>());
+        services.AddHostedService(sp => sp.GetRequiredService<ClaudeUsageMonitor>());
+
         return services;
     }
 

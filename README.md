@@ -68,7 +68,10 @@ where review worktrees can be removed, and the effective configuration.
   Anthropic under your own Claude Code account, the same as running `claude` in that folder
   yourself. The tool allowlist limits each run to reading files and running read-only git commands.
 - **Each review costs Claude Code usage**, one headless run per step. The report shows what each
-  step cost and the review's total; a small pull request comes to roughly a dollar.
+  step cost and the review's total; a small pull request comes to roughly a dollar. The home page
+  shows how much of your plan's current session limit is used (hover it for the weekly limits),
+  read with `claude -p /usage`, which costs no usage, every `Claude:UsageRefreshMinutes` and after
+  each review change. It is hidden when the CLI is signed in with an API key rather than a plan.
 - **Everything else stays on your machine**: the database in `%LOCALAPPDATA%\CodebaseReviewTool`,
   the worktrees under `Git:WorktreeRoot`, and the UI, which only listens on localhost.
 

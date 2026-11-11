@@ -21,29 +21,30 @@
 
 <PageTitle>Pull requests - Codebase Review Tool</PageTitle>
 
-<div class="page-head">
-    <div class="page-head-text">
-        <h1 class="page-title">Open pull requests</h1>
-        <p class="page-lede">@_items.Count open · @_items.Count(i => i.IsReviewing) reviewing · @_items.Count(i => i.State == ReviewState.Completed) reviewed</p>
+@* A grid rather than the usual text column, so the usage bar shares the counts line's row at the right edge. *@
+<div class="home-head page-head">
+    <h1 class="page-title">Open pull requests</h1>
+    <p class="page-lede">@_items.Count open · @_items.Count(i => i.IsReviewing) reviewing · @_items.Count(i => i.State == ReviewState.Completed) reviewed</p>
 
-        <p class="@(PollError is null ? "poll-status" : "poll-error poll-status")">
-            @(PollError ?? PollText)
+    <UsageMeter />
 
-            @if (PollControl.IsEnabled)
-            {
-                <button @onclick="PollControl.RequestPoll"
-                        aria-label="Refresh now"
-                        class="poll-refresh"
-                        disabled="@PollControl.IsPolling"
-                        title="Refresh now"
-                        type="button">
+    <p class="@(PollError is null ? "poll-status" : "poll-error poll-status")">
+        @(PollError ?? PollText)
 
-                    ↻
+        @if (PollControl.IsEnabled)
+        {
+            <button @onclick="PollControl.RequestPoll"
+                    aria-label="Refresh now"
+                    class="poll-refresh"
+                    disabled="@PollControl.IsPolling"
+                    title="Refresh now"
+                    type="button">
 
-                </button>
-            }
-        </p>
-    </div>
+                ↻
+
+            </button>
+        }
+    </p>
 </div>
 
 <section class="pr-section section">
