@@ -277,13 +277,6 @@ button:focus-visible {
     color: var(--ink);
 }
 
-.tab-dirty {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--med);
-}
-
 .tab-panel[hidden] {
     display: none;
 }

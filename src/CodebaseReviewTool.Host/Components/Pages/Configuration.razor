@@ -20,6 +20,7 @@
 @inject IDevOpsClient DevOpsClient
 @inject IOptions<DevOpsOptions> DevOpsOptions
 @inject IOptions<GitOptions> GitOptions
+@inject NavigationManager NavigationManager
 @inject GitRunner GitRunner
 @inject IPollControl PollControl
 @inject IProcessRunner ProcessRunner
@@ -44,7 +45,7 @@
      role="tablist">
     @foreach (var tab in _tabs)
     {
-        <button @onclick="() => _activeTab = tab.Key"
+        <button @onclick="() => SelectTab(tab.Key)"
                 aria-controls="@PanelId(tab.Key)"
                 aria-selected="@(tab.Key == _activeTab ? "true" : "false")"
                 class="@(tab.Key == _activeTab ? "active tab" : "tab")"
@@ -54,17 +55,64 @@
 
             @tab.Label
 
-            @if (tab.Key == ConfigurationTab.Steps && IsDirty)
-            {
-                <span aria-label="unsaved changes"
-                      class="tab-dirty"
-                      role="img"
-                      title="Unsaved changes"></span>
-            }
-
         </button>
     }
 </div>
+
+<NavigationLock ConfirmExternalNavigation="IsDirty"
+                OnBeforeInternalNavigation="OnBeforeInternalNavigation" />
+
+@if (_pendingTab is not null || _pendingUrl is not null)
+{
+    var leavingPage = _pendingUrl is not null;
+
+    <Modal OnClose="StayOnSteps"
+           Title="Unsaved changes">
+
+        <ChildContent>
+            <p class="modal-text">
+                You have unsaved changes to the flow steps.
+                @(leavingPage
+                    ? "Leaving this page without saving loses them."
+                    : "They are kept while you look at another tab, but reviews keep using the saved prompts until you save.")
+            </p>
+
+            @if (!IsValid)
+            {
+                <p class="modal-text step-invalid">A step is not valid, so the changes cannot be saved until you fix it.</p>
+            }
+        </ChildContent>
+
+        <Footer>
+            <button @onclick="StayOnSteps"
+                    class="btn btn-secondary"
+                    type="button">
+
+                Stay
+
+            </button>
+
+            <button @onclick="ContinueWithoutSaving"
+                    class="btn btn-secondary"
+                    disabled="@_saving"
+                    type="button">
+
+                @(leavingPage ? "Leave without saving" : "Switch without saving")
+
+            </button>
+
+            <button @onclick="SaveAndContinueAsync"
+                    class="btn btn-primary"
+                    disabled="@(!IsValid || _saving)"
+                    type="button">
+
+                @(leavingPage ? "Save and leave" : "Save and switch")
+
+            </button>
+        </Footer>
+
+    </Modal>
+}
 
 <div aria-labelledby="@TabId(ConfigurationTab.Steps)"
      class="tab-panel"
@@ -366,6 +414,13 @@
     // step editor's own state and any checks still running.
     private ConfigurationTab _activeTab = ConfigurationTab.Steps;
 
+    // Where the user was going when the unsaved-changes dialog stopped them: another tab, or another page.
+    private ConfigurationTab? _pendingTab;
+    private string? _pendingUrl;
+
+    // Set just before re-issuing a navigation the user has confirmed, so the lock lets it through.
+    private bool _navigationConfirmed;
+
     private List<FlowStepDraft> _drafts = [];
     private List<PullRequest> _pullRequests = [];
     private bool _saving;
@@ -501,6 +556,81 @@
     {
         _saveError = null;
         await LoadStepsAsync();
+    }
+
+    private void SelectTab(ConfigurationTab tab)
+    {
+        if (tab == _activeTab)
+        {
+            return;
+        }
+
+        // Only leaving the Steps tab asks: once the user has chosen to switch, the edits stay put and moving between
+        // the other tabs, or back to Steps, does not ask again.
+        if (_activeTab == ConfigurationTab.Steps && IsDirty)
+        {
+            _pendingTab = tab;
+            return;
+        }
+
+        _activeTab = tab;
+    }
+
+    private void OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (_navigationConfirmed || !IsDirty)
+        {
+            return;
+        }
+
+        context.PreventNavigation();
+        _pendingTab = null;
+        _pendingUrl = context.TargetLocation;
+    }
+
+    private void StayOnSteps()
+    {
+        _pendingTab = null;
+        _pendingUrl = null;
+        _activeTab = ConfigurationTab.Steps;
+    }
+
+    private void ContinueWithoutSaving()
+    {
+        if (_pendingUrl is not null)
+        {
+            // Leaving the page throws the drafts away with the component, so there is nothing to discard here.
+            LeaveTo(_pendingUrl);
+            return;
+        }
+
+        if (_pendingTab is { } tab)
+        {
+            _activeTab = tab;
+        }
+
+        _pendingTab = null;
+    }
+
+    private async Task SaveAndContinueAsync()
+    {
+        await SaveAsync();
+
+        if (_saveError is not null)
+        {
+            // Saving failed: stay on Steps, where the error shows beside the steps that were not saved.
+            StayOnSteps();
+            return;
+        }
+
+        ContinueWithoutSaving();
+    }
+
+    private void LeaveTo(string url)
+    {
+        _pendingUrl = null;
+        _navigationConfirmed = true;
+        NavigationManager.NavigateTo(url);
     }
 
     private async Task RunAllChecksAsync()
