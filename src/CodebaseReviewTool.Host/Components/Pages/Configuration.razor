@@ -268,19 +268,7 @@
         </div>
     </section>
 
-    <section class="section">
-        <div class="section-head">
-            <h2 class="section-title">Worktrees</h2>
-
-            <a class="btn btn-secondary"
-               href="worktrees">
-
-                Manage worktrees
-
-            </a>
-        </div>
-        <p class="section-note">Created under <span class="mono">@GitOptions.Value.WorktreeRoot</span> and removed automatically @GitOptions.Value.AutoCleanupAfterDays days after a review finishes.</p>
-    </section>
+    <WorktreeList />
 
     <section class="section">
         <div class="section-head">

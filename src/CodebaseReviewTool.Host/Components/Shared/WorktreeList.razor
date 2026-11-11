@@ -6,40 +6,34 @@
 @using CodebaseReviewTool.Core.Data.Enums
 @using CodebaseReviewTool.Core.Git
 @using CodebaseReviewTool.Core.Reviews
-@using CodebaseReviewTool.Host.Components.Shared
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.Extensions.Options
-
-@rendermode InteractiveServer
 
 @implements IDisposable
 
 @inject IDbContextFactory<ReviewDbContext> DbContextFactory
-@inject ILogger<Worktrees> Logger
+@inject ILogger<WorktreeList> Logger
 @inject IOptions<GitOptions> GitOptions
 @inject IRepositoryRegistry RepositoryRegistry
 @inject ReviewEvents ReviewEvents
 @inject WorktreeService WorktreeService
 
-@page "/worktrees"
+<section class="section"
+         id="worktrees">
 
-<PageTitle>Worktrees - Codebase Review Tool</PageTitle>
-
-<div class="page-head">
-    <div class="page-head-text">
-        <h1 class="page-title">Worktrees</h1>
-        <p class="page-lede">Each review checks the pull request out in its own worktree under <span class="mono">@GitOptions.Value.WorktreeRoot</span>. Worktrees are removed automatically @CleanupText after a review finishes.</p>
+    <div class="section-head">
+        <h2 class="section-title">Worktrees</h2>
+        <span class="count">@_items.Count</span>
     </div>
-</div>
+    <p class="section-note">Each review checks the pull request out in its own worktree under <span class="mono">@GitOptions.Value.WorktreeRoot</span>. Worktrees are removed automatically @CleanupText after a review finishes.</p>
 
-<section class="section">
     @if (_items.Count == 0)
     {
         <p class="empty">No worktrees.</p>
     }
     else
     {
-        <div class="rows">
+        <div class="rows worktree-rows">
             <div class="row-head worktree-row">
                 <span>Pull request</span>
                 <span>State</span>
@@ -198,7 +192,7 @@
                 }
             }
 
-            // ReviewChanged reloads this page (and any other open copy), which drops the row.
+            // ReviewChanged reloads this list (and any other open copy), which drops the row.
             ReviewEvents.PublishReviewChanged(new ReviewChangedEventArgs(review.Id, review.PullRequestId, review.RepositoryKey));
         }
         catch (Exception ex)
