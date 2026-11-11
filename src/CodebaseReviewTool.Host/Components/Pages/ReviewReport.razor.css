@@ -1,0 +1,152 @@
+.report-top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 64px;
+    align-items: flex-start;
+    margin-bottom: 72px;
+}
+
+.report-aside {
+    flex: 0 1 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+}
+
+.report-main {
+    flex: 1 1 520px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+}
+
+.report-branch {
+    word-break: break-all;
+}
+
+.report-counts,
+.report-history {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+}
+
+.report-count {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13.5px;
+}
+
+.report-count-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.report-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.report-count-value {
+    font-family: var(--mono);
+    font-size: 13px;
+}
+
+.report-history-title {
+    font-size: 12px;
+    color: var(--faint);
+}
+
+.report-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.report-history-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13.5px;
+}
+
+.report-history-item.current {
+    font-weight: 500;
+}
+
+.report-history-state {
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--faint);
+}
+
+.report-history-state.failed {
+    color: var(--high);
+}
+
+.report-head {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.report-number {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--faint);
+}
+
+.report-title {
+    letter-spacing: -0.028em;
+    text-wrap: pretty;
+}
+
+.report-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px;
+    margin-top: 6px;
+}
+
+.report-actions:empty {
+    display: none;
+}
+
+.report-link {
+    font-size: 13.5px;
+}
+
+.report-error {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--high);
+    overflow-wrap: anywhere;
+}
+
+/* The summary is passed to ReportStep as child content, so it carries this page's scope. */
+.report-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 680px;
+}
+
+/* Single line breaks inside a paragraph are kept; blank lines already separate the paragraphs. */
+.report-summary p {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.65;
+    text-wrap: pretty;
+    white-space: pre-line;
+}
