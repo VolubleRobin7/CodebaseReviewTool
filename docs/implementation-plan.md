@@ -169,7 +169,8 @@ dotnet ef migrations add <Name> --project src/CodebaseReviewTool.Core --startup-
   "Git": {
     "ExecutablePath": "git",                                      // resolved via PATH if bare
     "WorktreeRoot": "C:\\Repos\\_review-worktrees",
-    "AutoCleanupAfterDays": 14,
+    "AutoCleanupAfterDays": 14,                                   // after the review finishes, PR still open
+    "AutoCleanupAfterPullRequestClosedDays": 1,                   // after the PR is completed or abandoned
     "FetchBeforeReview": true,
     "CommandTimeoutMinutes": 10                                   // fetch of a large clone can be slow
   },
@@ -416,8 +417,9 @@ Goal: a review gets its own worktree at the PR's source commit.
   the row on the Worktrees page with Retry, not stored on the `Review`, since writing its
   error field would turn a completed review into a failed one. (The team's `close-worktree` skill documents the
   same failure modes; reuse its approach, not its code.)
-- `WorktreeCleanupService` removes worktrees older than `AutoCleanupAfterDays` for
-  Completed/Failed reviews.
+- `WorktreeCleanupService` removes worktrees of Completed/Failed reviews `AutoCleanupAfterDays` after the
+  review finished, or `AutoCleanupAfterPullRequestClosedDays` after its PR was completed or abandoned,
+  whichever comes first.
 - Worktrees page (`/worktrees`, linked from the Configuration page rather than the
   header, since the mockup's header has only Pull requests and the gear): path, PR, age,
   Remove button, "Open folder" button.

@@ -158,7 +158,12 @@ pull request.
 Each review gets its own git worktree, detached at the pull request's source commit, under
 `Git:WorktreeRoot` (`<root>\<repository key>\pr-<id>-r<review id>`); "Start review" fetches
 the clone and creates it. Worktrees are removed from the Worktrees page (linked from
-Configuration) or automatically `Git:AutoCleanupAfterDays` days after a review finishes.
+Configuration) or automatically once the review has finished (completed or failed):
+`Git:AutoCleanupAfterDays` days (default 14) after the review finished while its pull request is still
+open, or `Git:AutoCleanupAfterPullRequestClosedDays` days (default 1) after the pull request is completed
+or abandoned, whichever comes first. A review still queued or running is never cleaned up. Cleanup runs
+every six hours, so `0` removes the worktree within six hours. A pull request counts as closed once the
+DevOps poller no longer sees it as active.
 
 Once the worktree is ready the review runs the flow steps one after another, each as its own 
 headless Claude Code CLI run (`claude -p`) inside the

@@ -28,7 +28,7 @@
 <div class="page-head">
     <div class="page-head-text">
         <h1 class="page-title">Worktrees</h1>
-        <p class="page-lede">Each review checks the pull request out in its own worktree under <span class="mono">@GitOptions.Value.WorktreeRoot</span>. Worktrees are removed automatically @CleanupText after a review finishes.</p>
+        <p class="page-lede">Each review checks the pull request out in its own worktree under <span class="mono">@GitOptions.Value.WorktreeRoot</span>. Worktrees are removed automatically @WorktreeCleanupText.Describe(GitOptions.Value).</p>
     </div>
 </div>
 
@@ -99,8 +99,6 @@
     private readonly HashSet<int> _removing = [];
 
     private List<WorktreeItem> _items = [];
-
-    private string CleanupText => GitOptions.Value.AutoCleanupAfterDays == 1 ? "1 day" : $"{GitOptions.Value.AutoCleanupAfterDays} days";
 
     protected override async Task OnInitializedAsync()
     {
