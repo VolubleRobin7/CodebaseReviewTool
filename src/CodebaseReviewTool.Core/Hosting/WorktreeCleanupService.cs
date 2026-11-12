@@ -12,7 +12,7 @@ namespace CodebaseReviewTool.Core.Hosting;
 /// <summary>
 /// Removes the worktrees of reviews that finished (completed or failed) more than <c>Git:AutoCleanupAfterDays</c> days
 /// ago: shortly after startup, then every six hours. A review still in progress is never touched. A worktree that
-/// cannot be removed is logged and tried again on the next run (or removed from the Worktrees page).
+/// cannot be removed is logged and tried again on the next run (or removed from the Worktrees section of the Configuration page).
 /// </summary>
 public sealed class WorktreeCleanupService(
     IDbContextFactory<ReviewDbContext> dbContextFactory,
