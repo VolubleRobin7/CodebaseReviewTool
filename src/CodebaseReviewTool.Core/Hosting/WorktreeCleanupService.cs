@@ -14,7 +14,7 @@ namespace CodebaseReviewTool.Core.Hosting;
 /// days after their pull request was completed or abandoned, or otherwise <c>Git:AutoCleanupAfterDays</c> days after
 /// the review finished, whichever comes first. Runs shortly after startup, then every six hours. A review still queued
 /// or running is never touched. A worktree that cannot be removed is logged and tried again on the next run (or
-/// removed from the Worktrees page).
+/// removed from the Worktrees section of the Configuration page).
 /// </summary>
 public sealed class WorktreeCleanupService(
     IDbContextFactory<ReviewDbContext> dbContextFactory,
