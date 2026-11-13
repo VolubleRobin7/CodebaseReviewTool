@@ -37,6 +37,10 @@ public static class ReportFormat
     /// <summary>Formats a cost in US dollars to the cent, or to four decimals for a run that cost less than a cent.</summary>
     public static string Cost(double usd) => usd.ToString(usd is > 0 and < 0.01 ? "$0.0000" : "$0.00", CultureInfo.InvariantCulture);
 
+    /// <summary>Explains, at the top of a cancelled review's report, why some sections are missing.</summary>
+    public const string CancelledNote =
+        "This review was cancelled. Steps that finished before then are shown; the rest did not complete.";
+
     /// <summary>The tooltip beside a review's cost when <paramref name="steps"/> finished steps reported none.</summary>
     public static string UnknownCostNote(int steps) =>
         steps == 1

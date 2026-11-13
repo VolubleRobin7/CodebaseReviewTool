@@ -149,9 +149,29 @@
                     @if (report.IsInProgress)
                     {
                         <p class="report-progress">
-                            <span class="spinner" />
+                            <span class="@(report.State == ReviewState.Queued ? "queued-dot" : "spinner")" />
                             <span>@ProgressText(report)</span>
                         </p>
+                    }
+
+                    @if (report.State == ReviewState.Cancelled)
+                    {
+                        <div class="report-failure report-cancelled">
+                            <p class="report-failure-title">The review was cancelled.</p>
+                            <p class="report-failure-text">Steps that finished before then are shown below; the rest did not complete.</p>
+
+                            @if (report.FirstUnfinishedIndex is { } resumeIndex)
+                            {
+                                <button @onclick="() => ConfirmRerun(resumeIndex)"
+                                        class="btn btn-secondary report-failure-action"
+                                        disabled="@(!CanRerun)"
+                                        type="button">
+
+                                    Run the remaining steps
+
+                                </button>
+                            }
+                        </div>
                     }
 
                     @if (report.FailedOutsideSteps)
@@ -399,6 +419,7 @@
     {
         ReviewState.Completed => entry.IssueCount == 1 ? "1 issue" : $"{entry.IssueCount} issues",
         ReviewState.Failed => "Failed",
+        ReviewState.Cancelled => "Cancelled",
         ReviewState.Queued => "Queued",
         _ => "Reviewing…",
     };

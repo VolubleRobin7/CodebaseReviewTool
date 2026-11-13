@@ -66,14 +66,19 @@
 
                 </a>
 
-                <button @onclick="OnReviewAgain"
-                        class="btn btn-link"
-                        disabled="@IsStarting"
-                        type="button">
+                @ReviewAgainButton
+                break;
 
-                    Review again
+            case ReviewState.Cancelled:
+                <a class="pr-cancelled"
+                   href="reviews/@Item.LatestReview!.Id"
+                   title="View what the cancelled review finished">
 
-                </button>
+                    Review cancelled
+
+                </a>
+
+                @ReviewAgainButton
                 break;
 
             case ReviewState.Failed:
@@ -97,8 +102,55 @@
 
             default:
                 <span class="pr-status">
-                    <span class="spinner" />
+                    <a aria-label="Open the report so far"
+                       class="pr-status-icon"
+                       href="reviews/@Item.LatestReview!.Id"
+                       title="Open the report so far">
+
+                        <svg aria-hidden="true"
+                             fill="none"
+                             height="15"
+                             stroke="currentColor"
+                             stroke-linecap="round"
+                             stroke-linejoin="round"
+                             stroke-width="1.75"
+                             viewBox="0 0 24 24"
+                             width="15">
+
+                            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+                            <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                            <path d="M16 13H8" />
+                            <path d="M16 17H8" />
+
+                        </svg>
+
+                    </a>
+
+                    <span class="@(Item.State == ReviewState.Queued ? "queued-dot" : "spinner")" />
                     <span>@StatusText</span>
+
+                    <button @onclick="OnCancel"
+                            aria-label="Stop review"
+                            class="pr-status-icon pr-stop"
+                            disabled="@IsCancelling"
+                            title="Stop review"
+                            type="button">
+
+                        <svg aria-hidden="true"
+                             height="15"
+                             viewBox="0 0 24 24"
+                             width="15">
+
+                            <rect fill="currentColor"
+                                  height="12"
+                                  rx="2"
+                                  width="12"
+                                  x="6"
+                                  y="6" />
+
+                        </svg>
+
+                    </button>
                 </span>
                 break;
         }
@@ -126,9 +178,42 @@
     [Parameter]
     public EventCallback OnReviewAgain { get; set; }
 
+    /// <summary>True while a cancel request for this row is in flight; disables the stop button.</summary>
+    [Parameter]
+    public bool IsCancelling { get; set; }
+
+    /// <summary>Raised by the stop button, which the page confirms before cancelling the review.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private RenderFragment ReviewAgainButton =>
+        @<button @onclick="OnReviewAgain"
+                 aria-label="Review again"
+                 class="icon-btn pr-icon-btn"
+                 disabled="@IsStarting"
+                 title="Review again"
+                 type="button">
+
+            <svg aria-hidden="true"
+                 fill="none"
+                 height="17"
+                 stroke="currentColor"
+                 stroke-linecap="round"
+                 stroke-linejoin="round"
+                 stroke-width="1.75"
+                 viewBox="0 0 24 24"
+                 width="17">
+
+                <path d="M21 7v6h-6" />
+                <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" />
+
+            </svg>
+
+        </button>;
+
     private string StatusText => Item switch
     {
-        { State: ReviewState.Queued } => "Queued…",
+        { State: ReviewState.Queued } => "Queued",
         { State: ReviewState.PreparingWorktree } => "Preparing worktree…",
         { CurrentStepNumber: { } number } => $"Reviewing… step {number} of {Item.FlowSteps.Count}",
         _ => "Reviewing…",
