@@ -61,8 +61,10 @@
     {
         <PullRequestListRow @key="item.Key"
                             Error="@_rowErrors.GetValueOrDefault(item.Key)"
+                            IsCancelling="@_cancelling.Contains(item.Key)"
                             IsStarting="@_starting.Contains(item.Key)"
                             Item="item"
+                            OnCancel="() => ConfirmCancel(item)"
                             OnReviewAgain="() => _reviewAgain = item"
                             OnStart="() => StartReviewAsync(item)" />
     }
@@ -87,8 +89,10 @@
     {
         <PullRequestListRow @key="item.Key"
                             Error="@_rowErrors.GetValueOrDefault(item.Key)"
+                            IsCancelling="@_cancelling.Contains(item.Key)"
                             IsStarting="@_starting.Contains(item.Key)"
                             Item="item"
+                            OnCancel="() => ConfirmCancel(item)"
                             OnReviewAgain="() => _reviewAgain = item"
                             OnStart="() => StartReviewAsync(item)" />
     }
@@ -124,18 +128,50 @@
     </Modal>
 }
 
+@if (_cancelTarget is { } target)
+{
+    <Modal OnClose="() => _cancelTarget = null"
+           Title="@($"Stop the review of #{target.PullRequest.Id}?")">
+
+        <ChildContent>
+            <p class="modal-text">@CancelText(target)</p>
+        </ChildContent>
+
+        <Footer>
+            <button @onclick="() => _cancelTarget = null"
+                    class="btn btn-secondary"
+                    type="button">
+
+                Keep reviewing
+
+            </button>
+
+            <button @onclick="() => CancelReviewAsync(target)"
+                    class="btn btn-primary"
+                    type="button">
+
+                Stop review
+
+            </button>
+        </Footer>
+
+    </Modal>
+}
+
 @code {
     // Re-renders between polls so "Updated N minutes ago" stays true.
     private static readonly TimeSpan _clockInterval = TimeSpan.FromSeconds(30);
 
     private readonly Dictionary<string, string> _rowErrors = [];
     private readonly HashSet<string> _starting = [];
+    private readonly HashSet<string> _cancelling = [];
 
     private List<PullRequestListItem> _items = [];
     private List<PullRequestListItem> _reviewed = [];
     private List<PullRequestListItem> _open = [];
     private Timer? _clock;
     private PullRequestListItem? _reviewAgain;
+    private PullRequestListItem? _cancelTarget;
 
     private string? PollError => PollControl.IsEnabled ? PollControl.LastError : null;
 
@@ -247,6 +283,50 @@
     {
         _reviewAgain = null;
         return StartReviewAsync(item);
+    }
+
+    private void ConfirmCancel(PullRequestListItem item)
+    {
+        _rowErrors.Remove(item.Key);
+        _cancelTarget = item;
+    }
+
+    private async Task CancelReviewAsync(PullRequestListItem item)
+    {
+        _cancelTarget = null;
+        if (item.LatestReview is not { } review || !_cancelling.Add(item.Key))
+        {
+            return;
+        }
+
+        try
+        {
+            // Stopping waits for the agent to exit; ReviewChanged then reloads the list with the row's new state.
+            await ReviewService.CancelReviewAsync(review.Id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _rowErrors[item.Key] = ex.Message;
+        }
+        finally
+        {
+            _cancelling.Remove(item.Key);
+        }
+    }
+
+    private static string CancelText(PullRequestListItem item)
+    {
+        var isQueued = item.State == ReviewState.Queued;
+        var stopped = isQueued ? "This takes the review out of the queue." : "The step in progress is stopped.";
+
+        // A review with nothing finished is removed rather than kept, since its report would be empty.
+        return item.FinishedStepCount switch
+        {
+            0 when isQueued => "This takes the review out of the queue before it starts.",
+            0 => "No step has finished yet, so the review is discarded and its worktree removed.",
+            1 => $"{stopped} The step that has finished keeps its result, and the report marks the rest as cancelled.",
+            var count => $"{stopped} The {count} steps that have finished keep their results, and the report marks the rest as cancelled.",
+        };
     }
 
     private async Task StartReviewAsync(PullRequestListItem item)

@@ -30,6 +30,11 @@ public class Review
                 return ReviewState.Failed;
             }
 
+            if (CancelledAt is not null)
+            {
+                return ReviewState.Cancelled;
+            }
+
             if (CompletedAt is not null)
             {
                 return ReviewState.Completed;
@@ -56,6 +61,12 @@ public class Review
     public DateTime? StartedAt { get; set; }
 
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// When the user cancelled the review; <see cref="CompletedAt"/> is set too, so code asking whether a review is
+    /// unfinished (no completion time, no error) treats a cancelled one as finished.
+    /// </summary>
+    public DateTime? CancelledAt { get; set; }
 
     public string? Error { get; set; }
 

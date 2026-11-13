@@ -24,6 +24,21 @@
         </div>
         break;
 
+    case StepRunState.Cancelled:
+        <div class="report-failure report-cancelled">
+            <p class="report-failure-title">@Title was cancelled before it finished.</p>
+
+            <button @onclick="RerunAsync"
+                    class="btn btn-secondary report-failure-action"
+                    disabled="@(!CanRerun)"
+                    type="button">
+
+                Re-run
+
+            </button>
+        </div>
+        break;
+
     case StepRunState.Running:
     case StepRunState.Pending:
         <p class="report-progress">
@@ -61,7 +76,7 @@
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
-    /// <summary>Raised with the step's position by "Re-run" on a failed step and "Re-run from this step".</summary>
+    /// <summary>Raised with the step's position by "Re-run" on a failed or cancelled step and "Re-run from this step".</summary>
     [Parameter]
     public EventCallback<int> OnRerun { get; set; }
 
@@ -75,6 +90,7 @@
         ReviewState.PreparingWorktree => "Waiting for the worktree to be prepared.",
         ReviewState.Running => $"Waiting for step {Index + 1} of {Report.FlowSteps.Count}.",
         ReviewState.Failed => "Not run: the review stopped before this step.",
+        ReviewState.Cancelled => "Not run: the review was cancelled before this step.",
         _ => "This step was not part of the flow when the review ran.",
     };
 

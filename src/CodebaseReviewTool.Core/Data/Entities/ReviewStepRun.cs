@@ -14,10 +14,14 @@ public class ReviewStepRun
     /// <summary>Sequence number of the flow step this run executed; matches <see cref="FlowStep.Step"/>.</summary>
     public int Step { get; set; }
 
-    /// <summary>Derived from <see cref="StartedAt"/>, <see cref="CompletedAt"/> and <see cref="Error"/>; not stored.</summary>
+    /// <summary>
+    /// Derived from <see cref="StartedAt"/>, <see cref="CompletedAt"/>, <see cref="CancelledAt"/> and
+    /// <see cref="Error"/>; not stored.
+    /// </summary>
     public StepRunState State => this switch
     {
         { Error: not null } => StepRunState.Failed,
+        { CancelledAt: not null } => StepRunState.Cancelled,
         { CompletedAt: not null } => StepRunState.Succeeded,
         { StartedAt: not null } => StepRunState.Running,
         _ => StepRunState.Pending,
@@ -45,6 +49,9 @@ public class ReviewStepRun
     public DateTime? StartedAt { get; set; }
 
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>When the review was cancelled while this step was running; <see cref="CompletedAt"/> is set too.</summary>
+    public DateTime? CancelledAt { get; set; }
 
     public string? Error { get; set; }
 }

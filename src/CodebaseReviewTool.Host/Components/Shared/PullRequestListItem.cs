@@ -26,6 +26,9 @@ public sealed record PullRequestListItem(
 
     public bool IsReviewing => State is ReviewState.Queued or ReviewState.PreparingWorktree or ReviewState.Running;
 
+    /// <summary>Steps of the latest review that have succeeded.</summary>
+    public int FinishedStepCount => LatestReview?.StepRuns.Count(s => s.State == StepRunState.Succeeded) ?? 0;
+
     /// <summary>The 1-based position of the step in flight, or null when no step is running.</summary>
     public int? CurrentStepNumber => LatestReview?.CurrentStep is { } step && FlowSteps.Contains(step)
         ? FlowSteps.ToList().IndexOf(step) + 1

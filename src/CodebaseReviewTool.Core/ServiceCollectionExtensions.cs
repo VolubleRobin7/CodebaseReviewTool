@@ -53,6 +53,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PollControl>();
         services.AddSingleton<IPollControl>(sp => sp.GetRequiredService<PollControl>());
         services.AddSingleton<ReviewQueue>();
+        services.AddSingleton<ReviewRuns>();
         services.AddSingleton<ReviewService>();
 
         // The AI tool that runs each flow step; another tool means another IAgentRunner registered here.

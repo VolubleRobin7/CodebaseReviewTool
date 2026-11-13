@@ -155,6 +155,9 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("TEXT");
 
@@ -203,6 +206,9 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("AgentSessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CancelledAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CommandLine")
