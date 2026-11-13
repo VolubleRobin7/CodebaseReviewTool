@@ -16,8 +16,19 @@ public sealed class GitOptions
     [ConfirmNotPlaceholder]
     public string WorktreeRoot { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Days a finished review keeps its worktree while its pull request is still in progress (open). Reviews still
+    /// queued or running are never cleaned up.
+    /// </summary>
     [Range(0, 3650, ErrorMessage = "Git:AutoCleanupAfterDays must be between {1} and {2}.")]
     public int AutoCleanupAfterDays { get; set; } = 14;
+
+    /// <summary>
+    /// Days a finished review keeps its worktree once its pull request has been completed or abandoned. 0 removes it
+    /// on the next cleanup run, which happens every six hours.
+    /// </summary>
+    [Range(0, 3650, ErrorMessage = "Git:AutoCleanupAfterPullRequestClosedDays must be between {1} and {2}.")]
+    public int AutoCleanupAfterPullRequestClosedDays { get; set; } = 1;
 
     public bool FetchBeforeReview { get; set; } = true;
 
