@@ -1,4 +1,6 @@
-/* Design tokens and shared components, written from docs/mockup/Review Desk.html. Fonts are system fonts only. */
+/* Design tokens, base element styles and the shared building blocks that more than one component uses, written from
+   docs/mockup/Review Desk.html. Fonts are system fonts only. Styles that belong to a single component live beside it
+   in that component's .razor.css file, which Blazor scopes to the component. */
 :root {
     --bg: #f7f7f6;
     --surface: #ffffff;
@@ -94,77 +96,7 @@ button:focus-visible {
     }
 }
 
-/* ---- Header ---- */
-
-.app-header {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background: var(--bg);
-    border-bottom: 1px solid var(--line);
-}
-
-.app-header-inner {
-    max-width: 1120px;
-    margin: 0 auto;
-    padding: 0 32px;
-    height: 64px;
-    display: flex;
-    align-items: center;
-    gap: 40px;
-}
-
-.brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-weight: 600;
-    font-size: 15px;
-    letter-spacing: -0.01em;
-    color: var(--ink);
-}
-
-.brand:hover {
-    text-decoration: none;
-}
-
-.brand-mark {
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    background: var(--accent-bg);
-}
-
-.app-nav {
-    display: flex;
-    gap: 28px;
-    align-self: stretch;
-}
-
-.app-nav a {
-    display: flex;
-    align-items: center;
-    border-bottom: 2px solid transparent;
-    color: var(--muted);
-    font-size: 14px;
-}
-
-.app-nav a:hover {
-    text-decoration: none;
-    color: var(--ink);
-}
-
-.app-nav a.active {
-    border-bottom-color: var(--ink);
-    color: var(--ink);
-}
-
-.header-actions {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
+/* ---- Icon buttons (header and modal close) ---- */
 
 .icon-btn {
     width: 36px;
@@ -187,25 +119,7 @@ button:focus-visible {
     text-decoration: none;
 }
 
-.icon-sun {
-    display: none;
-}
-
-:root[data-theme="dark"] .icon-sun {
-    display: block;
-}
-
-:root[data-theme="dark"] .icon-moon {
-    display: none;
-}
-
-/* ---- Page scaffolding ---- */
-
-.page {
-    max-width: 1120px;
-    margin: 0 auto;
-    padding: 64px 32px 120px;
-}
+/* ---- Page head ---- */
 
 .page-head {
     display: flex;
@@ -244,6 +158,8 @@ button:focus-visible {
     gap: 10px;
 }
 
+/* ---- Sections ---- */
+
 .section {
     display: flex;
     flex-direction: column;
@@ -269,20 +185,6 @@ button:focus-visible {
     font-size: 20px;
     font-weight: 500;
     letter-spacing: -0.01em;
-}
-
-.list-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--ink);
-}
-
-.list-title {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 500;
 }
 
 .count {
@@ -441,7 +343,7 @@ button:focus-visible {
     margin: 0;
 }
 
-/* ---- Data rows (tables drawn as grids, as in the mockup) ---- */
+/* ---- Data rows (tables drawn as grids, as in the mockup). Each component sets its own grid-template-columns. ---- */
 
 .rows {
     display: flex;
@@ -478,39 +380,13 @@ button:focus-visible {
     margin-top: 6px;
 }
 
-/* ---- Severity ---- */
-
-.sev {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13.5px;
-    font-weight: 500;
-}
-
-.sev::before {
-    content: "";
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: currentColor;
-}
+/* ---- Severity colours (the severity badge and the report's counts) ---- */
 
 .sev-critical { color: var(--critical); }
 .sev-high { color: var(--high); }
 .sev-medium { color: var(--med); }
 .sev-low { color: var(--low); }
 .sev-info { color: var(--info); }
-
-/* ---- Checks ---- */
-
-.check-state {
-    font-weight: 500;
-}
-
-.check-passed { color: var(--accent); }
-.check-failed { color: var(--high); }
-.check-running { color: var(--med); }
 
 /* ---- Form controls ---- */
 
@@ -538,6 +414,16 @@ button:focus-visible {
     padding: 16px 18px;
 }
 
+.input {
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
 /* ---- Blazor framework chrome ---- */
 
 .valid.modified:not([type=checkbox]) {
@@ -563,156 +449,12 @@ button:focus-visible {
     content: "An error has occurred.";
 }
 
-/* ---- Configuration page ---- */
+/* ---- Small shared pieces ---- */
 
-.check-row {
-    grid-template-columns: 220px minmax(0, 1fr) auto;
-}
-
-.repo-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 90px minmax(0, 1.4fr);
-}
-
-.section-note {
-    margin: 0;
-    font-size: 13.5px;
-    color: var(--faint);
-}
-
-/* ---- Flow step editor ---- */
-
-.step-rail {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-
-.step {
-    display: grid;
-    grid-template-columns: 36px minmax(0, 1fr);
-    gap: 28px;
-}
-
-.step-marker {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.step-circle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    border: 1px solid var(--ink);
-    border-radius: 50%;
-    font-family: var(--mono);
-    font-size: 13px;
-}
-
-.step-line {
-    flex: 1;
-    width: 1px;
-    background: var(--line-strong);
-}
-
-.step-card {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    min-width: 0;
-    padding-bottom: 56px;
-}
-
-.step:last-child .step-card {
-    padding-bottom: 0;
-}
-
-.step-head {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding-top: 4px;
-}
-
-.step-title {
-    margin: 0;
-    font-size: 22px;
-    font-weight: 500;
-    letter-spacing: -0.015em;
-}
-
-.step-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px;
-}
-
-.step-field {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.step-field-label {
-    font-size: 12.5px;
-    color: var(--faint);
-}
-
-.input {
-    font: inherit;
-    font-size: 13px;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--line-strong);
-    border-radius: 6px;
-    padding: 6px 10px;
-}
-
-.step-name {
-    width: 200px;
-}
-
-.step-timeout {
-    width: 84px;
-}
-
-.step-toolbar-end {
-    display: inline-flex;
-    align-items: center;
-    gap: 16px;
-    margin-left: auto;
-}
-
-.step-edited {
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--accent);
-}
-
-.step-invalid,
-.placeholder-unknown {
+.step-invalid {
     margin: 0;
     font-size: 13px;
     color: var(--high);
-}
-
-.placeholder-unknown .mono {
-    margin-left: 8px;
-}
-
-.step-panels {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-}
-
-.step-panels .disclosure {
-    flex: 1 1 auto;
-    min-width: 0;
 }
 
 .disclosure summary {
@@ -723,23 +465,6 @@ button:focus-visible {
 
 .disclosure > :not(summary) {
     margin-top: 12px;
-}
-
-.placeholder-list {
-    margin: 0;
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    gap: 6px 20px;
-    font-size: 13px;
-}
-
-.placeholder-list dt {
-    font-size: 12.5px;
-}
-
-.placeholder-list dd {
-    margin: 0;
-    color: var(--muted);
 }
 
 .btn-small {
@@ -762,206 +487,17 @@ button:focus-visible {
     border-radius: 8px;
 }
 
-/* ---- Modal ---- */
-
+/* Set on <body> by the Modal component while a modal is open. */
 body.modal-open {
     overflow: hidden;
 }
 
-.modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    background: rgba(0, 0, 0, 0.45);
-    outline: none;
-}
-
-.modal {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    max-width: 480px;
-    max-height: calc(100vh - 48px);
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
-}
-
-.modal-wide {
-    max-width: 880px;
-}
-
-.modal-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 18px 16px 14px 24px;
-    border-bottom: 1px solid var(--line);
-}
-
-.modal-title {
-    margin: 0;
-    flex: 1 1 auto;
-    font-size: 17px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-}
-
-.modal-close {
-    font-size: 14px;
-}
-
-.modal-body {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    padding: 20px 24px;
-    overflow: auto;
-    min-height: 0;
-}
-
+/* Text inside a modal's body. The content is written by the page that opens the modal, so it is styled here. */
 .modal-text {
     margin: 0;
     font-size: 14px;
     line-height: 1.5;
     color: var(--muted);
-}
-
-.modal-field {
-    width: 100%;
-}
-
-.modal-select {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.modal-pre {
-    max-height: none;
-}
-
-.modal-foot {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    padding: 14px 24px 18px;
-    border-top: 1px solid var(--line);
-}
-
-/* ---- Worktrees page ---- */
-
-.worktree-row {
-    grid-template-columns: minmax(0, 1.2fr) 130px 110px minmax(0, 1.6fr) auto;
-}
-
-.worktree-failed {
-    color: var(--high);
-}
-
-.worktree-path {
-    overflow-wrap: anywhere;
-}
-
-.worktree-missing {
-    display: block;
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--faint);
-}
-
-.worktree-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 16px;
-}
-
-/* Spans every column, so it sits on its own line beneath the row's cells. */
-.worktree-error {
-    grid-column: 1 / -1;
-    font-size: 13px;
-    color: var(--high);
-    overflow-wrap: anywhere;
-}
-
-/* ---- Pull request rows ---- */
-
-.pr-section {
-    gap: 0;
-}
-
-.poll-status {
-    margin: 0;
-    font-size: 13px;
-    color: var(--faint);
-}
-
-.poll-error {
-    color: var(--high);
-    overflow-wrap: anywhere;
-}
-
-/* Reads as one more character of the status line; spins while a poll is running. */
-.poll-refresh {
-    display: inline-block;
-    background: none;
-    border: 0;
-    padding: 0;
-    margin-left: 4px;
-    font: inherit;
-    color: inherit;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.poll-refresh:hover:not(:disabled) {
-    color: var(--ink);
-}
-
-.poll-refresh:disabled {
-    cursor: default;
-    animation: spin 1s linear infinite;
-}
-
-.pr-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 32px;
-    align-items: center;
-    padding: 26px 0;
-    border-bottom: 1px solid var(--line);
-}
-
-.pr-main {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-width: 0;
-}
-
-.pr-title-line {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 14px;
-}
-
-.pr-number {
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--faint);
-}
-
-.pr-title {
-    font-size: 18px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    text-wrap: pretty;
 }
 
 /* A small static label after a title, such as "Draft" on a pull request. */
@@ -1003,242 +539,7 @@ body.modal-open {
     cursor: default;
 }
 
-.pr-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 28px;
-    font-size: 13.5px;
-    color: var(--muted);
-}
-
-.pr-meta-item {
-    display: flex;
-    gap: 8px;
-}
-
-.pr-meta-label {
-    color: var(--faint);
-}
-
-.pr-meta-value {
-    color: var(--ink);
-}
-
-.pr-row-error {
-    display: block;
-    font-size: 13px;
-    color: var(--high);
-}
-
-.pr-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 16px;
-    min-width: 170px;
-}
-
-.pr-status {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 13.5px;
-    color: var(--muted);
-}
-
-.pr-result {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-    font-size: 12.5px;
-    color: var(--muted);
-}
-
-.pr-result-high,
-.pr-failed {
-    color: var(--high);
-}
-
-.pr-failed {
-    font-size: 13.5px;
-}
-
-.pr-cancelled {
-    font-size: 13.5px;
-    color: var(--muted);
-}
-
-.pr-icon-btn {
-    width: 32px;
-    height: 32px;
-}
-
-.pr-icon-btn:disabled {
-    cursor: default;
-    opacity: 0.45;
-}
-
-/* The small, quiet controls either side of a running review's status text. */
-.pr-status-icon {
-    width: 24px;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: 0;
-    border-radius: 6px;
-    padding: 0;
-    color: var(--faint);
-    cursor: pointer;
-}
-
-.pr-status-icon:hover:not(:disabled) {
-    background: var(--sunken);
-    color: var(--ink);
-    text-decoration: none;
-}
-
-.pr-stop:hover:not(:disabled) {
-    color: var(--high);
-}
-
-.pr-status-icon:disabled {
-    cursor: default;
-    opacity: 0.45;
-}
-
-/* ---- Report page ---- */
-
-.report-top {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 64px;
-    align-items: flex-start;
-    margin-bottom: 72px;
-}
-
-.report-aside {
-    flex: 0 1 220px;
-    display: flex;
-    flex-direction: column;
-    gap: 28px;
-}
-
-.report-main {
-    flex: 1 1 520px;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 48px;
-}
-
-.report-branch {
-    word-break: break-all;
-}
-
-.report-counts,
-.report-history {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding-top: 20px;
-    border-top: 1px solid var(--line);
-}
-
-.report-count {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 13.5px;
-}
-
-.report-count-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.report-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: currentColor;
-}
-
-.report-count-value {
-    font-family: var(--mono);
-    font-size: 13px;
-}
-
-.report-history-title {
-    font-size: 12px;
-    color: var(--faint);
-}
-
-.report-history-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.report-history-item {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 13.5px;
-}
-
-.report-history-item.current {
-    font-weight: 500;
-}
-
-.report-history-state {
-    font-size: 12.5px;
-    font-weight: 400;
-    color: var(--faint);
-}
-
-.report-history-state.failed {
-    color: var(--high);
-}
-
-.report-head {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.report-number {
-    font-family: var(--mono);
-    font-size: 12.5px;
-    color: var(--faint);
-}
-
-.report-title {
-    letter-spacing: -0.028em;
-    text-wrap: pretty;
-}
-
-.report-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 20px;
-    margin-top: 6px;
-}
-
-.report-actions:empty {
-    display: none;
-}
-
-.report-link {
-    font-size: 13.5px;
-}
+/* ---- Report progress and failure (the report page and each of its steps) ---- */
 
 .report-progress {
     margin: 0;
@@ -1247,13 +548,6 @@ body.modal-open {
     gap: 10px;
     font-size: 13.5px;
     color: var(--muted);
-}
-
-.report-error {
-    margin: 0;
-    font-size: 13.5px;
-    color: var(--high);
-    overflow-wrap: anywhere;
 }
 
 .report-failure {
@@ -1292,137 +586,4 @@ body.modal-open {
     margin: 0;
     font-size: 13.5px;
     color: var(--muted);
-}
-
-.report-summary {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    max-width: 680px;
-}
-
-/* Single line breaks inside a paragraph are kept; blank lines already separate the paragraphs. */
-.report-summary p {
-    margin: 0;
-    font-size: 16px;
-    line-height: 1.65;
-    text-wrap: pretty;
-    white-space: pre-line;
-}
-
-/* Diagrams are drawn for a light page, so the frame stays white in the dark theme too. The fixed height is the
-   fallback until the framed document reports its own. */
-.diagram-frame {
-    display: block;
-    width: 100%;
-    height: 560px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: #ffffff;
-}
-
-.pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-
-.pill {
-    background: transparent;
-    color: var(--muted);
-    border: 1px solid var(--line-strong);
-    border-radius: 999px;
-    padding: 5px 12px;
-    font: inherit;
-    font-size: 12.5px;
-    cursor: pointer;
-}
-
-.pill:hover:not(.active) {
-    border-color: var(--ink);
-    color: var(--ink);
-}
-
-.pill.active {
-    background: var(--ink);
-    color: var(--bg);
-    border-color: var(--ink);
-}
-
-.issue-row {
-    grid-template-columns: 96px minmax(0, 1.15fr) minmax(0, 1fr);
-}
-
-.row.issue-row {
-    padding: 22px 0;
-}
-
-.issue-severity,
-.issue-text {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.issue-category {
-    font-size: 12px;
-    color: var(--faint);
-}
-
-.issue-title {
-    font-size: 15px;
-    font-weight: 500;
-    line-height: 1.45;
-}
-
-.issue-description {
-    font-size: 15px;
-    line-height: 1.55;
-    text-wrap: pretty;
-    white-space: pre-line;
-}
-
-.issue-location {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--faint);
-    word-break: break-all;
-}
-
-.issue-fix {
-    font-size: 14.5px;
-    line-height: 1.55;
-    color: var(--muted);
-    text-wrap: pretty;
-    white-space: pre-line;
-}
-
-.run-kv {
-    grid-template-columns: 120px minmax(0, 1fr);
-}
-
-.run-block {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.run-label {
-    font-size: 12px;
-    color: var(--faint);
-}
-
-.disclosure > .run-rerun {
-    margin-top: 16px;
-}
-
-@media (max-width: 720px) {
-    .issue-row.row-head {
-        display: none;
-    }
-
-    .issue-row {
-        grid-template-columns: minmax(0, 1fr);
-        gap: 12px;
-    }
 }

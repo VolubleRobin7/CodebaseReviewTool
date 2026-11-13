@@ -56,8 +56,8 @@ report.
 The Configuration page holds the flow: each step has a name, a prompt (or a Claude Code skill,
 started with `/skill-name`), a model and a timeout, with "Reset to default" restoring the shipped
 prompt and a Preview that renders the prompt against a real pull request. Below the flow are checks
-for Claude, git, DevOps and each repository, the list of repositories, a link to the Worktrees page
-where review worktrees can be removed, and the effective configuration.
+for Claude, git, DevOps and each repository, the list of repositories, the review worktrees
+(each with Open folder and Remove), and the effective configuration.
 
 ### What it sends, and what it costs
 
@@ -68,7 +68,10 @@ where review worktrees can be removed, and the effective configuration.
   Anthropic under your own Claude Code account, the same as running `claude` in that folder
   yourself. The tool allowlist limits each run to reading files and running read-only git commands.
 - **Each review costs Claude Code usage**, one headless run per step. The report shows what each
-  step cost and the review's total; a small pull request comes to roughly a dollar.
+  step cost and the review's total; a small pull request comes to roughly a dollar. The home page
+  shows how much of your plan's current session limit is used (hover it for the weekly limits),
+  read with `claude -p /usage`, which costs no usage, every `Claude:UsageRefreshMinutes` and after
+  each review change. It is hidden when the CLI is signed in with an API key rather than a plan.
 - **Everything else stays on your machine**: the database in `%LOCALAPPDATA%\CodebaseReviewTool`,
   the worktrees under `Git:WorktreeRoot`, and the UI, which only listens on localhost.
 
@@ -154,8 +157,8 @@ pull request.
 
 Each review gets its own git worktree, detached at the pull request's source commit, under
 `Git:WorktreeRoot` (`<root>\<repository key>\pr-<id>-r<review id>`); "Start review" fetches
-the clone and creates it. Worktrees are removed from the Worktrees page (linked from
-Configuration) or automatically `Git:AutoCleanupAfterDays` days after a review finishes.
+the clone and creates it. Worktrees are removed from the Worktrees section of the
+Configuration page or automatically `Git:AutoCleanupAfterDays` days after a review finishes.
 
 Once the worktree is ready the review runs the flow steps one after another, each as its own 
 headless Claude Code CLI run (`claude -p`) inside the

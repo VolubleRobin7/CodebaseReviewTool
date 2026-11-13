@@ -1,0 +1,53 @@
+.section-note {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--faint);
+}
+
+/* Scrolls on its own once there are more than about six worktrees, so the rest of the page stays in reach. */
+.worktree-rows {
+    max-height: 520px;
+    overflow-y: auto;
+}
+
+/* Stays in view while the rows scroll beneath it; inside the scroller, so the columns stay aligned. */
+.worktree-rows > .row-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg);
+}
+
+.worktree-row {
+    grid-template-columns: minmax(0, 1.2fr) 130px 110px minmax(0, 1.6fr) auto;
+}
+
+.worktree-failed {
+    color: var(--high);
+}
+
+.worktree-path {
+    overflow-wrap: anywhere;
+}
+
+.worktree-missing {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--faint);
+}
+
+.worktree-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 16px;
+}
+
+/* Spans every column, so it sits on its own line beneath the row's cells. */
+.worktree-error {
+    grid-column: 1 / -1;
+    font-size: 13px;
+    color: var(--high);
+    overflow-wrap: anywhere;
+}
