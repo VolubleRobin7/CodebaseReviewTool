@@ -276,6 +276,29 @@ button:focus-visible {
     flex-shrink: 0;
 }
 
+/* Stands in for the spinner while a review waits its turn: the same size, but an empty ring that only breathes. */
+.queued-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--line-strong);
+    animation: breathe 2.8s ease-in-out infinite;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+@keyframes breathe {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .queued-dot {
+        animation: none;
+    }
+}
+
 /* ---- Key/value lists ---- */
 
 .kv {
@@ -548,4 +571,19 @@ body.modal-open {
 .report-failure-error {
     align-self: stretch;
     max-height: 240px;
+}
+
+/* A cancellation is the user's choice, not a fault, so it reads in neutral tones. */
+.report-cancelled {
+    border-left-color: var(--faint);
+}
+
+.report-cancelled .report-failure-title {
+    color: var(--ink);
+}
+
+.report-failure-text {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--muted);
 }

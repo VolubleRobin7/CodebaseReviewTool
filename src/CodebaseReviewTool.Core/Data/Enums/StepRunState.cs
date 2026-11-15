@@ -17,4 +17,7 @@ public enum StepRunState
 
     /// <summary>Finished with an error recorded.</summary>
     Failed,
+
+    /// <summary>Stopped part-way because the user cancelled the review.</summary>
+    Cancelled,
 }

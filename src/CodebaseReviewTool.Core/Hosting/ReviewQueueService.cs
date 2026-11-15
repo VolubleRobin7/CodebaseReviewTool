@@ -15,11 +15,14 @@ namespace CodebaseReviewTool.Core.Hosting;
 /// <see cref="ReviewOrchestrator"/>, with at most <c>Reviews:MaxConcurrent</c> in flight. A review re-queued to re-run
 /// from a step reuses its worktree, recreating it when the folder has gone. On start it fails reviews a previous run
 /// left part-way and re-queues reviews that were still waiting. A failing review records its error and never stops
-/// the service; stopping the service stops the running agent and leaves the review for the next start to mark.
+/// the service; stopping the service stops the running agent and leaves the review for the next start to mark. Each
+/// review runs under its own <see cref="ReviewRun"/>, which is how <see cref="ReviewService.CancelReviewAsync"/> stops
+/// one review without touching the others.
 /// </summary>
 public sealed class ReviewQueueService(
     IDbContextFactory<ReviewDbContext> dbContextFactory,
     ReviewQueue queue,
+    ReviewRuns runs,
     ReviewEvents events,
     IRepositoryRegistry registry,
     WorktreeService worktreeService,
@@ -31,6 +34,7 @@ public sealed class ReviewQueueService(
 
     private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
     private readonly ReviewQueue _queue = queue;
+    private readonly ReviewRuns _runs = runs;
     private readonly ReviewEvents _events = events;
     private readonly IRepositoryRegistry _registry = registry;
     private readonly WorktreeService _worktreeService = worktreeService;
@@ -138,16 +142,29 @@ public sealed class ReviewQueueService(
         }
     }
 
-    private async Task ProcessAsync(int reviewId, CancellationToken cancellationToken)
+    private async Task ProcessAsync(int reviewId, CancellationToken stoppingToken)
     {
+        using var run = _runs.Begin(reviewId, stoppingToken);
+        if (run is null)
+        {
+            _logger.LogInformation("Review {ReviewId} was cancelled while queued; skipped", reviewId);
+            return;
+        }
+
         try
         {
-            if (await PrepareAsync(reviewId, cancellationToken))
+            if (await PrepareAsync(reviewId, run.Token))
             {
-                await _orchestrator.RunAsync(reviewId, cancellationToken);
+                await _orchestrator.RunAsync(reviewId, run.Token);
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (Exception) when (run.IsCancelledByUser)
+        {
+            // Stopping the agent or git can surface as any exception. ReviewService records the cancellation once this
+            // run has ended, so nothing is written here.
+            _logger.LogInformation("Review {ReviewId} was cancelled", reviewId);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Left started and unfinished; the next start marks it interrupted.
         }

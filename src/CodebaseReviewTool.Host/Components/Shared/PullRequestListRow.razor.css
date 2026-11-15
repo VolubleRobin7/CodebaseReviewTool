@@ -94,3 +94,49 @@
 .pr-failed {
     font-size: 13.5px;
 }
+
+.pr-cancelled {
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+/* Sizes the shared icon button down for "Review again". */
+.pr-icon-btn {
+    width: 32px;
+    height: 32px;
+}
+
+.pr-icon-btn:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+/* The small, quiet controls either side of a running review's status text. */
+.pr-status-icon {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    padding: 0;
+    color: var(--faint);
+    cursor: pointer;
+}
+
+.pr-status-icon:hover:not(:disabled) {
+    background: var(--sunken);
+    color: var(--ink);
+    text-decoration: none;
+}
+
+.pr-stop:hover:not(:disabled) {
+    color: var(--high);
+}
+
+.pr-status-icon:disabled {
+    cursor: default;
+    opacity: 0.45;
+}

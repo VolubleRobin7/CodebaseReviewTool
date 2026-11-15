@@ -26,6 +26,15 @@ public sealed record PullRequestListItem(
 
     public bool IsReviewing => State is ReviewState.Queued or ReviewState.PreparingWorktree or ReviewState.Running;
 
+    /// <summary>
+    /// True when commits have been pushed since the latest review's commit. Not shown while that review is in flight:
+    /// the row is busy then, and the result appears once it finishes.
+    /// </summary>
+    public bool IsOutOfDate => !IsReviewing && LatestReview?.IsOutOfDate(PullRequest) == true;
+
+    /// <summary>Steps of the latest review that have succeeded.</summary>
+    public int FinishedStepCount => LatestReview?.StepRuns.Count(s => s.State == StepRunState.Succeeded) ?? 0;
+
     /// <summary>The 1-based position of the step in flight, or null when no step is running.</summary>
     public int? CurrentStepNumber => LatestReview?.CurrentStep is { } step && FlowSteps.Contains(step)
         ? FlowSteps.ToList().IndexOf(step) + 1

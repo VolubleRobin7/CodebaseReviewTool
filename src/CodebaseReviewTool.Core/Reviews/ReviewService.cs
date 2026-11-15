@@ -1,21 +1,31 @@
 using CodebaseReviewTool.Core.Data;
 using CodebaseReviewTool.Core.Data.Entities;
 using CodebaseReviewTool.Core.Data.Enums;
+using CodebaseReviewTool.Core.Git;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace CodebaseReviewTool.Core.Reviews;
 
-/// <summary>Starts reviews: creates the review row, queues it and announces it.</summary>
+/// <summary>Starts, re-runs and cancels reviews, and announces each change.</summary>
 public sealed class ReviewService(
     IDbContextFactory<ReviewDbContext> dbContextFactory,
     ReviewQueue queue,
+    ReviewRuns runs,
     ReviewEvents events,
+    IRepositoryRegistry registry,
+    WorktreeService worktreeService,
     ILogger<ReviewService> logger) : IDisposable
 {
+    // Stopping the agent kills its process tree, which takes moments; this only guards against a hang.
+    private static readonly TimeSpan _stopTimeout = TimeSpan.FromSeconds(30);
+
     private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
     private readonly ReviewQueue _queue = queue;
+    private readonly ReviewRuns _runs = runs;
     private readonly ReviewEvents _events = events;
+    private readonly IRepositoryRegistry _registry = registry;
+    private readonly WorktreeService _worktreeService = worktreeService;
     private readonly ILogger<ReviewService> _logger = logger;
 
     // Serialises the "already reviewing?" check with the insert, so a double click cannot queue two reviews.
@@ -112,6 +122,7 @@ public sealed class ReviewService(
 
             review.Error = null;
             review.CompletedAt = null;
+            review.CancelledAt = null;
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
@@ -125,11 +136,151 @@ public sealed class ReviewService(
         _events.PublishReviewChanged(new ReviewChangedEventArgs(review.Id, review.PullRequestId, review.RepositoryKey));
     }
 
+    /// <summary>
+    /// Stops a review that is queued, preparing its worktree or running, and waits for its agent to stop. When at least
+    /// one step had succeeded, the review is kept as <see cref="ReviewState.Cancelled"/> with the step that was running
+    /// marked cancelled, so its report shows what finished. Otherwise there is nothing to report: the review and its
+    /// worktree are removed, as if it had never been started. Throws <see cref="InvalidOperationException"/> when the
+    /// review does not exist, is not in flight, or does not stop in time.
+    /// </summary>
+    public async Task<ReviewCancelOutcome> CancelReviewAsync(int reviewId, CancellationToken cancellationToken = default)
+    {
+        await _startGate.WaitAsync(cancellationToken);
+        try
+        {
+            ReviewState state;
+            await using (var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
+            {
+                var current = await db.Reviews
+                    .AsNoTracking()
+                    .Include(r => r.StepRuns)
+                    .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken)
+                    ?? throw new InvalidOperationException($"Review {reviewId} does not exist.");
+                state = current.State;
+            }
+
+            if (state is not (ReviewState.Queued or ReviewState.PreparingWorktree or ReviewState.Running))
+            {
+                throw new InvalidOperationException($"Review {reviewId} is {Describe(state)}, so there is nothing to stop.");
+            }
+
+            // Holding the start gate keeps a re-run of this review from being queued while it stops.
+            try
+            {
+                await _runs.CancelAsync(reviewId, isQueued: state == ReviewState.Queued).WaitAsync(_stopTimeout, cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                throw new InvalidOperationException($"Review {reviewId} is still stopping; try again in a moment.");
+            }
+
+            return await RecordCancellationAsync(reviewId, cancellationToken);
+        }
+        finally
+        {
+            _startGate.Release();
+        }
+    }
+
     public void Dispose() => _startGate.Dispose();
+
+    /// <summary>Records a review whose run has stopped (or never started) as cancelled, or removes it when nothing finished.</summary>
+    private async Task<ReviewCancelOutcome> RecordCancellationAsync(int reviewId, CancellationToken cancellationToken)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Read again: the run may have finished a step, or the whole review, before it saw the cancellation.
+        var review = await db.Reviews
+            .Include(r => r.StepRuns)
+            .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken);
+        if (review is null)
+        {
+            return ReviewCancelOutcome.Discarded;
+        }
+
+        if (review.State is ReviewState.Completed or ReviewState.Failed or ReviewState.Cancelled)
+        {
+            _logger.LogInformation("Review {ReviewId} finished before it could be cancelled", reviewId);
+            return ReviewCancelOutcome.AlreadyFinished;
+        }
+
+        var outcome = ReviewCancelOutcome.Cancelled;
+        if (!review.StepRuns.Any(s => s.State == StepRunState.Succeeded) && await TryRemoveWorktreeAsync(review, cancellationToken))
+        {
+            db.Reviews.Remove(review);
+            outcome = ReviewCancelOutcome.Discarded;
+            _logger.LogInformation("Review {ReviewId} was cancelled before any step finished; removed it", reviewId);
+        }
+        else
+        {
+            // A review with nothing finished is still kept when its worktree could not be removed, so the worktree stays
+            // listed and the cleanup service can remove it later.
+            var now = DateTime.UtcNow;
+            review.CancelledAt = now;
+            review.CompletedAt = now;
+            foreach (var run in review.StepRuns.Where(s => s.State is StepRunState.Running or StepRunState.Pending))
+            {
+                run.CancelledAt = now;
+                run.CompletedAt = now;
+            }
+
+            _logger.LogInformation("Review {ReviewId} was cancelled", reviewId);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        _events.PublishReviewChanged(new ReviewChangedEventArgs(review.Id, review.PullRequestId, review.RepositoryKey));
+        return outcome;
+    }
+
+    /// <summary>
+    /// Removes the worktree of a review that is about to be deleted; returns false when it could not be removed. The
+    /// path may not be recorded yet when the review was stopped while git was adding the worktree.
+    /// </summary>
+    private async Task<bool> TryRemoveWorktreeAsync(Review review, CancellationToken cancellationToken)
+    {
+        var path = string.IsNullOrEmpty(review.WorktreePath)
+            ? _worktreeService.GetWorktreePath(review.RepositoryKey, review.PullRequestId, review.Id)
+            : review.WorktreePath;
+
+        if (string.IsNullOrEmpty(review.WorktreePath) && !Directory.Exists(path))
+        {
+            return true;
+        }
+
+        if (_registry.Find(review.RepositoryKey) is not { } repository)
+        {
+            _logger.LogWarning("Not removing the worktree of review {ReviewId}: repository {RepositoryKey} is no longer configured", review.Id, review.RepositoryKey);
+            review.WorktreePath = path;
+            return false;
+        }
+
+        var result = await _worktreeService.RemoveAsync(repository, path, cancellationToken);
+        if (!result.Succeeded)
+        {
+            _logger.LogWarning("Could not remove the worktree of cancelled review {ReviewId} at {Path}: {Error}", review.Id, path, result.Detail);
+            review.WorktreePath = path;
+            return false;
+        }
+
+        return true;
+    }
 
     private static string Describe(ReviewState state) => state switch
     {
         ReviewState.PreparingWorktree => "preparing its worktree",
         _ => state.ToString().ToLowerInvariant(),
     };
+}
+
+/// <summary>What <see cref="ReviewService.CancelReviewAsync"/> did.</summary>
+public enum ReviewCancelOutcome
+{
+    /// <summary>The review was stopped and kept, with the steps that finished.</summary>
+    Cancelled,
+
+    /// <summary>No step had finished, so the review and its worktree were removed.</summary>
+    Discarded,
+
+    /// <summary>The review finished before the cancellation reached it; nothing changed.</summary>
+    AlreadyFinished,
 }
