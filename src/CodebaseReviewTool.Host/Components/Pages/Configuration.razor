@@ -298,8 +298,10 @@
             <dd class="mono">@GitOptions.Value.ExecutablePath</dd>
             <dt>Worktree root</dt>
             <dd class="mono">@GitOptions.Value.WorktreeRoot</dd>
-            <dt>Worktree auto-cleanup</dt>
-            <dd>after @GitOptions.Value.AutoCleanupAfterDays days</dd>
+            <dt>Worktree auto-cleanup (PR open)</dt>
+            <dd>@WorktreeCleanupText.Days(GitOptions.Value.AutoCleanupAfterDays) after the review finishes</dd>
+            <dt>Worktree auto-cleanup (PR closed)</dt>
+            <dd>@WorktreeCleanupText.Days(GitOptions.Value.AutoCleanupAfterPullRequestClosedDays) after the PR is completed or abandoned</dd>
             <dt>Fetch before review</dt>
             <dd>@YesNo(GitOptions.Value.FetchBeforeReview)</dd>
 

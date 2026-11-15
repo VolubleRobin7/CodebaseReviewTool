@@ -10,9 +10,11 @@ using Microsoft.Extensions.Options;
 namespace CodebaseReviewTool.Core.Hosting;
 
 /// <summary>
-/// Removes the worktrees of reviews that finished (completed or failed) more than <c>Git:AutoCleanupAfterDays</c> days
-/// ago: shortly after startup, then every six hours. A review still in progress is never touched. A worktree that
-/// cannot be removed is logged and tried again on the next run (or removed from the Worktrees section of the Configuration page).
+/// Removes the worktrees of finished (completed or failed) reviews: <c>Git:AutoCleanupAfterPullRequestClosedDays</c>
+/// days after their pull request was completed or abandoned, or otherwise <c>Git:AutoCleanupAfterDays</c> days after
+/// the review finished, whichever comes first. Runs shortly after startup, then every six hours. A review still queued
+/// or running is never touched. A worktree that cannot be removed is logged and tried again on the next run (or
+/// removed from the Worktrees section of the Configuration page).
 /// </summary>
 public sealed class WorktreeCleanupService(
     IDbContextFactory<ReviewDbContext> dbContextFactory,
@@ -58,11 +60,20 @@ public sealed class WorktreeCleanupService(
     {
         try
         {
-            var cutoff = DateTime.UtcNow.AddDays(-_options.AutoCleanupAfterDays);
+            var now = DateTime.UtcNow;
+            var finishedCutoff = now.AddDays(-_options.AutoCleanupAfterDays);
+            var closedCutoff = now.AddDays(-_options.AutoCleanupAfterPullRequestClosedDays);
 
+            // The cache keeps no close time: the poller stops refreshing LastSeenAt once a pull request leaves the
+            // active list, so LastSeenAt is when it was last known to be open.
             await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
             var expired = await db.Reviews
-                .Where(r => r.WorktreePath != "" && r.WorktreeRemovedAt == null && r.CompletedAt != null && r.CompletedAt < cutoff)
+                .Where(r => r.WorktreePath != "" && r.WorktreeRemovedAt == null && r.CompletedAt != null)
+                .Where(r => r.CompletedAt < finishedCutoff
+                    || (r.CompletedAt < closedCutoff
+                        && r.PullRequest != null
+                        && !r.PullRequest.IsOpen
+                        && r.PullRequest.LastSeenAt < closedCutoff))
                 .OrderBy(r => r.Id)
                 .ToListAsync(cancellationToken);
 
