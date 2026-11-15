@@ -49,6 +49,18 @@ public class Review
         }
     }
 
+    /// <summary>
+    /// True when commits have been pushed to <paramref name="pullRequest"/> since this review's commit, i.e. the cached
+    /// head commit (which the poller keeps current) differs from the one reviewed. False when either is unknown.
+    /// </summary>
+    public bool IsOutOfDate(PullRequest pullRequest)
+    {
+        ArgumentNullException.ThrowIfNull(pullRequest);
+        return !string.IsNullOrEmpty(SourceCommit)
+            && !string.IsNullOrEmpty(pullRequest.SourceCommit)
+            && !string.Equals(SourceCommit, pullRequest.SourceCommit, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>The step currently running, or null when no step is in flight. Needs <see cref="StepRuns"/> loaded.</summary>
     public int? CurrentStep => StepRuns.FirstOrDefault(s => s.State == StepRunState.Running)?.Step;
 

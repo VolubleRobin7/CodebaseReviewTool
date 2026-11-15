@@ -25,6 +25,11 @@
     word-break: break-all;
 }
 
+/* Sits after the commit id when the pull request has moved on since this review. */
+.report-commit-tag {
+    margin-left: 8px;
+}
+
 .report-counts,
 .report-history {
     display: flex;
@@ -109,6 +114,11 @@
 .report-title {
     letter-spacing: -0.028em;
     text-wrap: pretty;
+}
+
+/* Razor trims the space between the title text and its tags (Draft, Conflicts), so the gap is set here. */
+.report-title .tag {
+    margin-left: 12px;
 }
 
 .report-actions {

@@ -101,7 +101,10 @@ public sealed partial class ReportData
         : null;
 
     /// <summary>The reviewed commit, abbreviated.</summary>
-    public string ShortCommit => Review.SourceCommit.Length > 10 ? Review.SourceCommit[..10] : Review.SourceCommit;
+    public string ShortCommit => ReportFormat.ShortCommit(Review.SourceCommit);
+
+    /// <summary>True when the pull request has moved on since this review's commit; never while the review is in flight.</summary>
+    public bool IsOutOfDate => !IsInProgress && Review.IsOutOfDate(PullRequest);
 
     /// <summary>The summary step's text split into paragraphs at blank lines; empty until that step has succeeded.</summary>
     public IReadOnlyList<string> SummaryParagraphs => SucceededRun(SummaryIndex) is { } run

@@ -37,7 +37,18 @@
                     </div>
                     <div>
                         <dt>Commit</dt>
-                        <dd class="mono">@report.ShortCommit</dd>
+                        <dd class="mono">
+                            @report.ShortCommit
+                            @if (report.IsOutOfDate)
+                            {
+                                <span class="tag tag-high report-commit-tag"
+                                      title="@ReportFormat.OutOfDateNote(report.Review.SourceCommit, report.PullRequest.SourceCommit)">
+
+                                    Out of date
+
+                                </span>
+                            }
+                        </dd>
                     </div>
                     <div>
                         <dt>Reviewed</dt>
