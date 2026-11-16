@@ -55,19 +55,7 @@ public sealed class PullRequestCache(IDbContextFactory<ReviewDbContext> dbContex
                 db.PullRequests.Add(row);
             }
 
-            row.Title = source.Title;
-            row.Description = source.Description ?? string.Empty;
-            row.AuthorName = source.CreatedBy?.DisplayName ?? string.Empty;
-            row.SourceBranch = source.SourceBranch;
-            row.TargetBranch = source.TargetBranch;
-            // Without a merge yet there is no commit; keep the last one known rather than forget it.
-            row.SourceCommit = source.LastMergeSourceCommit?.CommitId ?? row.SourceCommit;
-            row.Status = source.Status;
-            row.IsDraft = source.IsDraft;
-            row.MergeStatus = source.MergeStatus;
-            row.CreatedAt = source.CreationDate;
-            row.Url = source.WebUrl;
-            row.LastSeenAt = now;
+            Apply(row, source, now);
             row.IsOpen = true;
         }
 
@@ -92,6 +80,67 @@ public sealed class PullRequestCache(IDbContextFactory<ReviewDbContext> dbContex
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Upserts one pull request fetched on demand (for example by the API, which needs the current head commit rather
+    /// than the one from the last poll) and returns the saved row. Unlike <see cref="MergeAsync"/> it closes nothing
+    /// else; the row is open only while DevOps reports it <c>active</c>. Raises
+    /// <see cref="ReviewEvents.PullRequestsChanged"/> when anything other than the last-seen time changed.
+    /// </summary>
+    public async Task<PullRequest> UpsertAsync(ResolvedRepository repository, DevOpsPullRequest source, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(source);
+
+        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var row = await db.PullRequests.FindAsync([source.PullRequestId, repository.Key], cancellationToken);
+        if (row is null)
+        {
+            row = new PullRequest { Id = source.PullRequestId, RepositoryKey = repository.Key };
+            db.PullRequests.Add(row);
+        }
+
+        Apply(row, source, DateTime.UtcNow);
+        row.IsOpen = IsActive(source);
+
+        db.ChangeTracker.DetectChanges();
+        var entry = db.Entry(row);
+        var changed = entry.State == EntityState.Added || (entry.State == EntityState.Modified && HasMeaningfulChange(entry));
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        if (changed)
+        {
+            _events.PublishPullRequestsChanged();
+        }
+
+        return row;
+    }
+
+    /// <summary>True when DevOps reports the pull request as <c>active</c> (not completed or abandoned).</summary>
+    public static bool IsActive(DevOpsPullRequest source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return string.Equals(source.Status, "active", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void Apply(PullRequest row, DevOpsPullRequest source, DateTime now)
+    {
+        row.Title = source.Title;
+        row.Description = source.Description ?? string.Empty;
+        row.AuthorName = source.CreatedBy?.DisplayName ?? string.Empty;
+        row.SourceBranch = source.SourceBranch;
+        row.TargetBranch = source.TargetBranch;
+        // Without a merge yet there is no commit; keep the last one known rather than forget it.
+        row.SourceCommit = source.LastMergeSourceCommit?.CommitId ?? row.SourceCommit;
+        row.Status = source.Status;
+        row.IsDraft = source.IsDraft;
+        row.MergeStatus = source.MergeStatus;
+        row.CreatedAt = source.CreationDate;
+        row.Url = source.WebUrl;
+        row.LastSeenAt = now;
     }
 
     // LastSeenAt moves on every poll; only the other columns count as a change worth refreshing the UI for.

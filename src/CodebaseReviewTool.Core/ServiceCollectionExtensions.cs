@@ -55,6 +55,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ReviewQueue>();
         services.AddSingleton<ReviewRuns>();
         services.AddSingleton<ReviewService>();
+        services.AddSingleton<ReviewStatusReader>();
 
         // The AI tool that runs each flow step; another tool means another IAgentRunner registered here.
         services.AddSingleton<IAgentRunner, ClaudeCodeRunner>();

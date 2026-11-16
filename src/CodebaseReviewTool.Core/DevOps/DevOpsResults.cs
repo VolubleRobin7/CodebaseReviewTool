@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace CodebaseReviewTool.Core.DevOps;
 
 /// <summary>Outcome of a DevOps call that returns one item.</summary>
@@ -7,6 +9,12 @@ namespace CodebaseReviewTool.Core.DevOps;
 public sealed record DevOpsResult<T>(bool Succeeded, T? Value, string? Error)
     where T : class
 {
+    /// <summary>
+    /// The HTTP status of an unsuccessful response that was not an authentication or format failure (for example
+    /// 404 when the item does not exist); null on success and for failures without such a response.
+    /// </summary>
+    public HttpStatusCode? StatusCode { get; init; }
+
     public static DevOpsResult<T> Success(T value) => new(true, value, null);
 
     public static DevOpsResult<T> Failure(string error) => new(false, null, error);

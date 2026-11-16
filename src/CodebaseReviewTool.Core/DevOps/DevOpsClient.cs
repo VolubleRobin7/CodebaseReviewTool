@@ -264,7 +264,10 @@ internal sealed partial class DevOpsClient : IDevOpsClient
 
             if (!response.IsSuccessStatusCode)
             {
-                return DevOpsResult<T>.Failure($"HTTP {(int)response.StatusCode} {response.ReasonPhrase} from {path}.");
+                return DevOpsResult<T>.Failure($"HTTP {(int)response.StatusCode} {response.ReasonPhrase} from {path}.") with
+                {
+                    StatusCode = response.StatusCode,
+                };
             }
 
             var value = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
