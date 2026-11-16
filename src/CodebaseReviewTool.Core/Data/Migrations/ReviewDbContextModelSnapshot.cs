@@ -66,6 +66,12 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                     b.Property<int?>("Line")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("PostedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("PostedThreadId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("ReviewId")
                         .HasColumnType("INTEGER");
 

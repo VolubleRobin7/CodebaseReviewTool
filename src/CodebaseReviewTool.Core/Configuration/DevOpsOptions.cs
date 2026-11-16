@@ -17,7 +17,8 @@ public sealed class DevOpsOptions
     public string OrganizationUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// Personal access token (Code (Read) scope). Lives in user-secrets only and is never displayed or logged.
+    /// Personal access token with the Code (Read) scope, plus Pull Request Threads (Read &amp; write) to post issues to
+    /// a pull request. Lives in user-secrets only and is never displayed or logged.
     /// Not required at startup so the Settings page can report it as missing, and not used when
     /// <see cref="UseDefaultCredentials"/> is true.
     /// </summary>

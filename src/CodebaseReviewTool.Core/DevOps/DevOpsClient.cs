@@ -32,6 +32,10 @@ internal sealed partial class DevOpsClient : IDevOpsClient
     // Project-less repository list: needs only Code (Read) and exists on every version.
     private const string ProbePath = "_apis/git/repositories";
 
+    // The PAT scopes named when authentication fails: reading needs the first, posting comment threads the second.
+    private const string ReadScope = "Code (Read)";
+    private const string WriteScope = "Pull Request Threads (Read & write)";
+
     // Page size for list calls; a page shorter than this is the last one.
     private const int PageSize = 100;
 
@@ -172,6 +176,50 @@ internal sealed partial class DevOpsClient : IDevOpsClient
         return result;
     }
 
+    public async Task<DevOpsResult<DevOpsCommentThread>> CreatePullRequestThreadAsync(
+        ResolvedRepository repository,
+        int pullRequestId,
+        DevOpsNewThread thread,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(thread);
+        ArgumentException.ThrowIfNullOrWhiteSpace(thread.Content);
+        if (MissingCredentials() is { } missing)
+        {
+            return DevOpsResult<DevOpsCommentThread>.Failure(missing);
+        }
+
+        var path = $"{PullRequestsPath(repository)}/{pullRequestId}/threads";
+        var anchor = ThreadContext.For(thread);
+
+        var (result, status) = await PostJsonAsync<NewThreadRequest, DevOpsCommentThread>(
+            path,
+            NewThreadRequest.Create(thread.Content, anchor),
+            cancellationToken);
+
+        // DevOps refuses an anchor it cannot place, such as a file the pull request does not touch. The comment still
+        // carries the location in its text, so it is posted on the pull request as a whole rather than lost.
+        if (!result.Succeeded && anchor is not null && status == HttpStatusCode.BadRequest)
+        {
+            _logger.LogInformation("DevOps refused the anchor {FilePath} on pull request {PullRequestId}; posting unanchored. {Error}",
+                anchor.FilePath, pullRequestId, result.Error);
+
+            (result, _) = await PostJsonAsync<NewThreadRequest, DevOpsCommentThread>(
+                path,
+                NewThreadRequest.Create(thread.Content, null),
+                cancellationToken);
+            anchor = null;
+        }
+
+        if (result.Succeeded)
+        {
+            result.Value!.IsAnchored = anchor is not null;
+        }
+
+        return result;
+    }
+
     /// <summary>Appends <c>api-version=&lt;version&gt;</c> to a relative path that may already have a query string.</summary>
     internal static string WithApiVersion(string pathAndQuery, string apiVersion)
     {
@@ -196,6 +244,38 @@ internal sealed partial class DevOpsClient : IDevOpsClient
         }
 
         return await _httpClient.GetAsync(WithApiVersion(pathAndQuery, version.Version!), cancellationToken);
+    }
+
+    /// <summary>
+    /// POSTs <paramref name="body"/> as JSON to a versioned endpoint with the configured or detected api-version. Some
+    /// endpoints were still in preview on older servers (pull request threads on TFS 2017 among them) and reject the
+    /// plain version there, so a 400 that names the api-version is retried once with <c>-preview</c> appended. Throws
+    /// <see cref="HttpRequestException"/> when no version can be determined.
+    /// </summary>
+    internal async Task<HttpResponseMessage> PostVersionedAsync<TBody>(string pathAndQuery, TBody body, CancellationToken cancellationToken)
+    {
+        var version = await GetApiVersionAsync(cancellationToken);
+        if (!version.Succeeded)
+        {
+            throw new HttpRequestException($"Cannot call {pathAndQuery}: {version.Error}");
+        }
+
+        var response = await _httpClient.PostAsJsonAsync(WithApiVersion(pathAndQuery, version.Version!), body, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.BadRequest
+            || version.Version!.Contains("preview", StringComparison.OrdinalIgnoreCase))
+        {
+            return response;
+        }
+
+        // Reading the body buffers it, so the caller can still read it when this is not a version rejection.
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!ApiVersionRejectedRegex().IsMatch(text))
+        {
+            return response;
+        }
+
+        response.Dispose();
+        return await _httpClient.PostAsJsonAsync(WithApiVersion(pathAndQuery, version.Version + "-preview"), body, cancellationToken);
     }
 
     private async Task<DevOpsApiVersionResult> DetectApiVersionAsync(CancellationToken cancellationToken)
@@ -253,35 +333,86 @@ internal sealed partial class DevOpsClient : IDevOpsClient
     private async Task<DevOpsResult<T>> GetJsonAsync<T>(string pathAndQuery, CancellationToken cancellationToken)
         where T : class
     {
+        var (result, _) = await SendJsonAsync<T>(pathAndQuery, ReadScope, () => GetVersionedAsync(pathAndQuery, cancellationToken), cancellationToken);
+        return result;
+    }
+
+    /// <summary>
+    /// POSTs <paramref name="body"/> as JSON to a versioned endpoint and deserialises the JSON reply, failing as
+    /// <see cref="GetJsonAsync{T}"/> does. Also returns the HTTP status, when there was a response, so the caller can
+    /// react to a particular refusal.
+    /// </summary>
+    private Task<(DevOpsResult<TResponse> Result, HttpStatusCode? Status)> PostJsonAsync<TBody, TResponse>(
+        string pathAndQuery,
+        TBody body,
+        CancellationToken cancellationToken)
+        where TResponse : class =>
+        SendJsonAsync<TResponse>(pathAndQuery, WriteScope, () => PostVersionedAsync(pathAndQuery, body, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// Sends one versioned request and deserialises its JSON reply. <paramref name="scope"/> is the PAT scope the call
+    /// needs, named in the message when authentication fails.
+    /// </summary>
+    private async Task<(DevOpsResult<T> Result, HttpStatusCode? Status)> SendJsonAsync<T>(
+        string pathAndQuery,
+        string scope,
+        Func<Task<HttpResponseMessage>> send,
+        CancellationToken cancellationToken)
+        where T : class
+    {
         var path = SanitisedPath(pathAndQuery);
         try
         {
-            using var response = await GetVersionedAsync(pathAndQuery, cancellationToken);
-            if (AuthOrFormatFailure(response, path) is { } failure)
+            using var response = await send();
+            if (AuthOrFormatFailure(response, path, scope) is { } failure)
             {
-                return DevOpsResult<T>.Failure(failure);
+                return (DevOpsResult<T>.Failure(failure), response.StatusCode);
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                return DevOpsResult<T>.Failure($"HTTP {(int)response.StatusCode} {response.ReasonPhrase} from {path}.");
+                var detail = await ServerMessageAsync(response, cancellationToken);
+                return (DevOpsResult<T>.Failure($"HTTP {(int)response.StatusCode} {response.ReasonPhrase} from {path}.{detail}"), response.StatusCode);
             }
 
             var value = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
             return value is null
-                ? DevOpsResult<T>.Failure($"HTTP {(int)response.StatusCode} with an empty body from {path}.")
-                : DevOpsResult<T>.Success(value);
+                ? (DevOpsResult<T>.Failure($"HTTP {(int)response.StatusCode} with an empty body from {path}."), response.StatusCode)
+                : (DevOpsResult<T>.Success(value), response.StatusCode);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException)
         {
             // Callers decide how loudly to report the failure; the poller logs it at Warning.
             _logger.LogDebug(ex, "DevOps call to {Path} failed", path);
-            return DevOpsResult<T>.Failure($"{ex.GetType().Name} from {path}: {ex.Message}");
+            return (DevOpsResult<T>.Failure($"{ex.GetType().Name} from {path}: {ex.Message}"), null);
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogDebug(ex, "DevOps call to {Path} timed out", path);
-            return DevOpsResult<T>.Failure($"Timed out after {_httpClient.Timeout.TotalSeconds:0} s calling {path}.");
+            return (DevOpsResult<T>.Failure($"Timed out after {_httpClient.Timeout.TotalSeconds:0} s calling {path}."), null);
+        }
+    }
+
+    /// <summary>
+    /// The <c>message</c> DevOps puts in an error body (such as a TF error code and its explanation), with a leading
+    /// space; empty when the body has none.
+    /// </summary>
+    private static async Task<string> ServerMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var text = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(text);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("message", out var message)
+                && message.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(message.GetString())
+                ? " " + message.GetString()!.Trim()
+                : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
         }
     }
 
@@ -305,13 +436,14 @@ internal sealed partial class DevOpsClient : IDevOpsClient
         : "DevOps:Pat is not set (dotnet user-secrets set \"DevOps:Pat\" \"<token>\"), and DevOps:UseDefaultCredentials is false.";
 
     /// <summary>401/403, or a 2xx that is not JSON (an invalid PAT can yield 203 with the HTML sign-in page).</summary>
-    private string? AuthOrFormatFailure(HttpResponseMessage response, string path)
+    private string? AuthOrFormatFailure(HttpResponseMessage response, string path, string scope = ReadScope)
     {
         var credential = _options.UseDefaultCredentials ? "the Windows account" : "the PAT";
 
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            return $"HTTP {(int)response.StatusCode} {response.ReasonPhrase} from {path}: authentication failed; check {credential} (needs Code (Read)).";
+            var needs = _options.UseDefaultCredentials ? "permission to " + (scope == WriteScope ? "contribute to pull requests" : "read code") : scope;
+            return $"HTTP {(int)response.StatusCode} {response.ReasonPhrase} from {path}: authentication failed; check {credential} (needs {needs}).";
         }
 
         if (response.IsSuccessStatusCode
@@ -353,5 +485,80 @@ internal sealed partial class DevOpsClient : IDevOpsClient
 
         [JsonPropertyName("customDisplayName")]
         public string? CustomDisplayName { get; set; }
+    }
+
+    /// <summary>The body that creates a pull request thread with one comment.</summary>
+    private sealed class NewThreadRequest
+    {
+        // CommentThreadStatus.Active and CommentType.Text; numbers are accepted by every server version.
+        private const int ActiveStatus = 1;
+        private const int TextComment = 1;
+
+        [JsonPropertyName("comments")]
+        public required List<NewComment> Comments { get; init; }
+
+        [JsonPropertyName("status")]
+        public int Status { get; init; } = ActiveStatus;
+
+        [JsonPropertyName("threadContext")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public ThreadContext? ThreadContext { get; init; }
+
+        public static NewThreadRequest Create(string content, ThreadContext? anchor) => new()
+        {
+            Comments = [new NewComment { Content = content, CommentType = TextComment }],
+            ThreadContext = anchor,
+        };
+    }
+
+    private sealed class NewComment
+    {
+        [JsonPropertyName("parentCommentId")]
+        public int ParentCommentId { get; init; }
+
+        [JsonPropertyName("content")]
+        public required string Content { get; init; }
+
+        [JsonPropertyName("commentType")]
+        public int CommentType { get; init; }
+    }
+
+    /// <summary>
+    /// Where a thread sits: a file, and optionally a line on the right-hand (changed) side of its diff. Without an
+    /// iteration context DevOps places it against the pull request's latest iteration.
+    /// </summary>
+    private sealed class ThreadContext
+    {
+        [JsonPropertyName("filePath")]
+        public required string FilePath { get; init; }
+
+        [JsonPropertyName("rightFileStart")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public FilePosition? RightFileStart { get; init; }
+
+        [JsonPropertyName("rightFileEnd")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public FilePosition? RightFileEnd { get; init; }
+
+        /// <summary>The anchor for <paramref name="thread"/>, or null when it names no file.</summary>
+        public static ThreadContext? For(DevOpsNewThread thread)
+        {
+            if (thread.ServerFilePath is not { } filePath)
+            {
+                return null;
+            }
+
+            var position = thread.Line is { } line && line > 0 ? new FilePosition { Line = line, Offset = 1 } : null;
+            return new ThreadContext { FilePath = filePath, RightFileStart = position, RightFileEnd = position };
+        }
+    }
+
+    private sealed class FilePosition
+    {
+        [JsonPropertyName("line")]
+        public int Line { get; init; }
+
+        [JsonPropertyName("offset")]
+        public int Offset { get; init; }
     }
 }
