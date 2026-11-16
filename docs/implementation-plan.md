@@ -549,7 +549,9 @@ Candidates, ordered by value; pick after Phases 0–6 are in use.
   single-instance mutex is keyed on the port, so the two can run together.
 - The database lives in `%LOCALAPPDATA%\CodebaseReviewTool` so a rebuild or clean never
   deletes review history.
-- Only the DevOps PAT is a secret. It needs Code (Read) scope only.
+- Only the DevOps PAT is a secret. It needs the Code (Read) scope, plus Pull Request Threads
+  (Read & write) to post issues to pull requests as comment threads (the only call that writes
+  to DevOps).
 - Running with the `http` launch profile logs a harmless Kestrel warning about
   overriding addresses, because launchSettings and the Kestrel section name the same
   URL. Both are kept: launchSettings so Visual Studio opens the browser, Kestrel so

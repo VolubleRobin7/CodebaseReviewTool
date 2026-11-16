@@ -18,7 +18,8 @@ numbered release unless you want to try unreleased changes.
 - The .NET 10 Desktop Runtime and ASP.NET Core Runtime (the exe says which is missing if either is not installed)
 - git
 - Claude Code CLI, signed in (its path is set in `appsettings.json` under `Claude:ExecutablePath`)
-- An Azure DevOps personal access token with **Code (Read)** scope
+- An Azure DevOps personal access token with the **Code (Read)** scope, plus **Pull Request
+  Threads (Read & write)** to post issues to pull requests as comments
 - Existing local clones of the repositories to review (the tool fetches but never clones)
 
 ### First Run
@@ -52,6 +53,12 @@ collapsible "Run details" per step, the pull request's earlier reviews, and a "D
 button that saves the whole thing as a single HTML file. "Review again" reviews the pull request's
 latest commit as a new review, keeping the earlier reports; a failed step can be re-run from the
 report.
+
+Each issue in the report has a tickbox. Tick the ones worth raising and press "Post to pull
+request" under the table: each becomes its own active comment thread on the pull request,
+anchored to the issue's file and line where it has them (or on the pull request as a whole when
+DevOps cannot place it there). Posted issues are marked "Posted", link to their thread, and cannot
+be posted again.
 
 The Configuration page holds the flow: each step has a name, a prompt (or a Claude Code skill,
 started with `/skill-name`), a model and a timeout, with "Reset to default" restoring the shipped
