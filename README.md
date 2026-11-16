@@ -66,6 +66,50 @@ prompt and a Preview that renders the prompt against a real pull request. Below 
 for Claude, git, DevOps and each repository, the list of repositories, the review worktrees
 (each with Open folder and Remove), and the effective configuration.
 
+### Starting a review from a script
+
+The same localhost address has an HTTP API, so a script, a build step or a Claude Code skill can
+start a review and wait for it. It has no authentication and, like the UI, listens only on
+localhost.
+
+`POST /api/reviews` with a JSON body starts a review and answers straight away:
+
+```bash
+curl -X POST http://localhost:5210/api/reviews -H "Content-Type: application/json" -d "{\"pullRequestUrl\":\"https://dev.azure.com/org/project/_git/repo/pullrequest/123\"}"
+```
+
+The body is either `pullRequestUrl` (the pull request page), or `pullRequestId` with
+`repositoryKey` (which can be left out when only one repository is configured). The tool reads the
+pull request from DevOps first, so a commit pushed moments ago is reviewed even if the poller has
+not seen it yet. The answer is the review's status (below):
+
+| Status | Meaning |
+|---|---|
+| 202 Accepted | A new review was queued; `Location` is its status URL. |
+| 200 OK | The pull request already has a review queued or running; that review is returned. |
+| 400 | The body names no pull request, or a repository that is not configured. |
+| 404 | DevOps has no such pull request. |
+| 409 | The pull request is completed or abandoned. |
+| 502 | DevOps could not be reached or refused the request. |
+
+`GET /api/reviews/{id}` returns the review's status: `state` (`queued`, `preparingWorktree`,
+`running`, `completed`, `failed` or `cancelled`), `isFinished`, the current step and each step's
+state, `error`, issue counts by severity, `isOutOfDate` (commits were pushed after the reviewed
+one) and `links.report` (the report page), `links.download` (the standalone HTML report) and
+`links.status`. While the review is unfinished the response has `Retry-After: 30`. It is 404 when
+there is no such review, which includes a review stopped before any step finished, since stopping
+that discards it.
+
+To wait for a review, poll its status until `isFinished` is true, pausing for the `Retry-After`
+seconds between calls. This loop also stops if the review is gone (404):
+
+```bash
+while json=$(curl -sf http://localhost:5210/api/reviews/42); do
+  echo "$json" | grep -q '"isFinished":true' && break
+  sleep 30
+done
+```
+
 ### What it sends, and what it costs
 
 - **Azure DevOps** is only ever read: the tool lists pull requests and their metadata. It never

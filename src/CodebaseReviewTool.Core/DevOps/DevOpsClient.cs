@@ -333,8 +333,8 @@ internal sealed partial class DevOpsClient : IDevOpsClient
     private async Task<DevOpsResult<T>> GetJsonAsync<T>(string pathAndQuery, CancellationToken cancellationToken)
         where T : class
     {
-        var (result, _) = await SendJsonAsync<T>(pathAndQuery, ReadScope, () => GetVersionedAsync(pathAndQuery, cancellationToken), cancellationToken);
-        return result;
+        var (result, status) = await SendJsonAsync<T>(pathAndQuery, ReadScope, () => GetVersionedAsync(pathAndQuery, cancellationToken), cancellationToken);
+        return result with { StatusCode = status };
     }
 
     /// <summary>

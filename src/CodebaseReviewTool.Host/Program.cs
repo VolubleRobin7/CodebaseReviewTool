@@ -89,6 +89,7 @@ public sealed class Program
         app.MapStaticAssets();
         app.MapHealthApi();
         app.MapReportApi();
+        app.MapReviewApi();
         app.MapRazorComponents<App>()
             .AddInteractiveServerRenderMode();
 

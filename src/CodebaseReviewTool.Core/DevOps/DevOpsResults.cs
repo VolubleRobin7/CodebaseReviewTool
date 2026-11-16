@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace CodebaseReviewTool.Core.DevOps;
 
 /// <summary>Outcome of a DevOps call that returns one item.</summary>
@@ -7,6 +9,13 @@ namespace CodebaseReviewTool.Core.DevOps;
 public sealed record DevOpsResult<T>(bool Succeeded, T? Value, string? Error)
     where T : class
 {
+    /// <summary>
+    /// The HTTP status of the response to a read (GET) call, so a caller can tell, say, a 404 (no such item) from
+    /// other failures; null when no response arrived (network failure or timeout) and on results of write calls,
+    /// which return their status separately.
+    /// </summary>
+    public HttpStatusCode? StatusCode { get; init; }
+
     public static DevOpsResult<T> Success(T value) => new(true, value, null);
 
     public static DevOpsResult<T> Failure(string error) => new(false, null, error);

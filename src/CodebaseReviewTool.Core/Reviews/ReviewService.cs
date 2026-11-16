@@ -34,7 +34,8 @@ public sealed class ReviewService(
     /// <summary>
     /// Creates a <see cref="ReviewState.Queued"/> review of the cached pull request, queues it and raises
     /// <see cref="ReviewEvents.ReviewChanged"/>. Throws <see cref="InvalidOperationException"/> when the pull request is
-    /// not in the cache or already has a review that is queued, preparing its worktree or running.
+    /// not in the cache, and its subclass <see cref="ReviewAlreadyActiveException"/> when the pull request already has
+    /// a review that is queued, preparing its worktree or running.
     /// </summary>
     public async Task<Review> StartReviewAsync(int pullRequestId, string repositoryKey, CancellationToken cancellationToken = default)
     {
@@ -59,7 +60,8 @@ public sealed class ReviewService(
 
             if (unfinished.FirstOrDefault(r => r.State is ReviewState.Queued or ReviewState.PreparingWorktree or ReviewState.Running) is { } active)
             {
-                throw new InvalidOperationException(
+                throw new ReviewAlreadyActiveException(
+                    active.Id,
                     $"Pull request #{pullRequestId} is already being reviewed (review {active.Id} is {Describe(active.State)}).");
             }
 
