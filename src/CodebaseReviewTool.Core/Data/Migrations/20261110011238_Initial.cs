@@ -94,7 +94,9 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                     Line = table.Column<int>(type: "INTEGER", nullable: true),
                     Title = table.Column<string>(type: "TEXT", nullable: false),
                     Description = table.Column<string>(type: "TEXT", nullable: false),
-                    Suggestion = table.Column<string>(type: "TEXT", nullable: true)
+                    Suggestion = table.Column<string>(type: "TEXT", nullable: true),
+                    PostedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    PostedThreadId = table.Column<int>(type: "INTEGER", nullable: true)
                 },
                 constraints: table =>
                 {

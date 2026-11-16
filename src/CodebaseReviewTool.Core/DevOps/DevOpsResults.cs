@@ -10,8 +10,9 @@ public sealed record DevOpsResult<T>(bool Succeeded, T? Value, string? Error)
     where T : class
 {
     /// <summary>
-    /// The HTTP status of an unsuccessful response that was not an authentication or format failure (for example
-    /// 404 when the item does not exist); null on success and for failures without such a response.
+    /// The HTTP status of the response to a read (GET) call, so a caller can tell, say, a 404 (no such item) from
+    /// other failures; null when no response arrived (network failure or timeout) and on results of write calls,
+    /// which return their status separately.
     /// </summary>
     public HttpStatusCode? StatusCode { get; init; }
 

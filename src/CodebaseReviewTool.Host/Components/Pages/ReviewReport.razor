@@ -7,6 +7,7 @@
 
 @implements IDisposable
 
+@inject IssuePostingService IssuePostingService
 @inject ILogger<ReviewReport> Logger
 @inject NavigationManager Navigation
 @inject ReportDataLoader ReportDataLoader
@@ -262,7 +263,13 @@
         <section class="section">
             @if (report.RunAt(IssuesIndex) is { State: StepRunState.Succeeded })
             {
-                <IssuesTable Issues="report.Issues"
+                <IssuesTable CanPost="CanPost"
+                             Issues="report.Issues"
+                             OnPost="ConfirmPost"
+                             PostStatus="@_postStatus"
+                             PostStatusIsError="_postFailed"
+                             Posting="_posting"
+                             PullRequestUrl="@report.PullRequest.Url"
                              Title="@report.SectionTitle(IssuesIndex)" />
             }
             else
@@ -309,6 +316,49 @@
 
         </Modal>
     }
+
+    @if (_postIds is { } postIds)
+    {
+        <Modal OnClose="() => _postIds = null"
+               Title="@PostTitle(report, postIds.Count)">
+
+            <ChildContent>
+                <p class="modal-text">
+                    Each issue becomes its own active comment thread on the pull request, anchored to its file and line
+                    where it has them. Comments are posted as the DevOps account this tool signs in with, and cannot be
+                    taken back from here.
+                </p>
+
+                @if (report.IsOutOfDate)
+                {
+                    <p class="modal-text">
+                        New commits were pushed after this review (it reviewed @report.ShortCommit), so some line
+                        numbers may no longer match the pull request.
+                    </p>
+                }
+            </ChildContent>
+
+            <Footer>
+                <button @onclick="() => _postIds = null"
+                        class="btn btn-secondary"
+                        type="button">
+
+                    Cancel
+
+                </button>
+
+                <button @onclick="() => PostAsync(postIds)"
+                        class="btn btn-primary"
+                        disabled="@_posting"
+                        type="button">
+
+                    Post
+
+                </button>
+            </Footer>
+
+        </Modal>
+    }
 }
 
 @code {
@@ -317,6 +367,10 @@
     private int? _rerunIndex;
     private bool _rerunning;
     private string? _actionError;
+    private IReadOnlyList<int>? _postIds;
+    private bool _posting;
+    private string? _postStatus;
+    private bool _postFailed;
 
     /// <summary>The review's database id, from the address.</summary>
     [Parameter]
@@ -325,7 +379,9 @@
     // What a step's output means is decided by its position, and the issues come from the flow's last step.
     private int IssuesIndex => Math.Max(0, (_report?.FlowSteps.Count ?? 0) - 1);
 
-    private bool CanRerun => _report is { IsInProgress: false } && !_rerunning;
+    private bool CanRerun => _report is { IsInProgress: false } && !_rerunning && !_posting;
+
+    private bool CanPost => _report is { IsInProgress: false } && !_rerunning && !_posting;
 
     protected override void OnInitialized()
     {
@@ -341,6 +397,9 @@
             _loadedId = Id;
             _rerunIndex = null;
             _actionError = null;
+            _postIds = null;
+            _postStatus = null;
+            _postFailed = false;
             await LoadAsync();
         }
     }
@@ -417,6 +476,58 @@
             _rerunIndex = null;
         }
     }
+
+    private void ConfirmPost(IReadOnlyList<int> issueIds)
+    {
+        if (issueIds.Count > 0)
+        {
+            _postIds = issueIds;
+        }
+    }
+
+    private async Task PostAsync(IReadOnlyList<int> issueIds)
+    {
+        if (_posting)
+        {
+            return;
+        }
+
+        _posting = true;
+        _postIds = null;
+        _postStatus = null;
+        _postFailed = false;
+        try
+        {
+            // ReviewChanged reloads the report, which marks the posted issues.
+            var result = await IssuePostingService.PostAsync(Id, issueIds);
+            (_postStatus, _postFailed) = PostResultText(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (_postStatus, _postFailed) = (ex.Message, true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Posting issues of review {ReviewId} failed", Id);
+            (_postStatus, _postFailed) = ($"Posting failed: {ex.Message}", true);
+        }
+        finally
+        {
+            _posting = false;
+        }
+    }
+
+    private static (string Text, bool IsError) PostResultText(IssuePostResult result) => result switch
+    {
+        { Requested: 0 } => ("Those issues had already been posted.", false),
+        { Succeeded: true, Posted: 1 } => ("Posted 1 issue to the pull request.", false),
+        { Succeeded: true } => ($"Posted {result.Posted} issues to the pull request.", false),
+        { Posted: 0 } => ($"Nothing was posted. {result.Error}", true),
+        _ => ($"Posted {result.Posted} of {result.Requested} issues, then stopped. {result.Error}", true),
+    };
+
+    private static string PostTitle(ReportData report, int count) =>
+        count == 1 ? $"Post 1 issue to #{report.PullRequest.Id}?" : $"Post {count} issues to #{report.PullRequest.Id}?";
 
     private static string ProgressText(ReportData report) => report switch
     {
