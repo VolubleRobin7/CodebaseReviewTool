@@ -1,0 +1,65 @@
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.45);
+    outline: none;
+}
+
+.modal {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 480px;
+    max-height: calc(100vh - 48px);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
+}
+
+/* Passed in through the Class parameter, which lands on this component's own element. */
+.modal-wide {
+    max-width: 880px;
+}
+
+.modal-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 16px 14px 24px;
+    border-bottom: 1px solid var(--line);
+}
+
+.modal-title {
+    margin: 0;
+    flex: 1 1 auto;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+}
+
+.modal-close {
+    font-size: 14px;
+}
+
+.modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 24px;
+    overflow: auto;
+    min-height: 0;
+}
+
+.modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 24px 18px;
+    border-top: 1px solid var(--line);
+}

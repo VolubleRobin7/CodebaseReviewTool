@@ -20,4 +20,7 @@ public enum ReviewState
 
     /// <summary>The review or one of its steps recorded an error.</summary>
     Failed,
+
+    /// <summary>Stopped by the user; the steps that finished before then keep their results.</summary>
+    Cancelled,
 }

@@ -97,6 +97,45 @@ public static partial class AzureDevOpsUrl
     }
 
     /// <summary>
+    /// Parses a pull request page URL, i.e. a repository URL that <see cref="TryParseRemoteUrl"/> accepts followed by
+    /// <c>/pullrequest/&lt;id&gt;</c> (for example <c>https://dev.azure.com/&lt;org&gt;/&lt;project&gt;/_git/&lt;repo&gt;/pullrequest/123</c>).
+    /// A query string or fragment (<c>?_a=files</c>) and anything after the id are ignored.
+    /// </summary>
+    public static bool TryParsePullRequestUrl(
+        string? pullRequestUrl,
+        string? organizationUrl,
+        [NotNullWhen(true)] out RemoteParts? parts,
+        out int pullRequestId)
+    {
+        parts = null;
+        pullRequestId = 0;
+        if (!TryCreateHttpUri(pullRequestUrl, out var uri))
+        {
+            return false;
+        }
+
+        var segments = Segments(uri);
+        var marker = Array.FindLastIndex(segments, s => s.Equals("pullrequest", StringComparison.OrdinalIgnoreCase));
+        if (marker <= 0
+            || marker + 1 >= segments.Length
+            || !int.TryParse(segments[marker + 1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id)
+            || id <= 0)
+        {
+            return false;
+        }
+
+        // The segments are still escaped, so the rebuilt repository URL parses exactly as a remote would.
+        var repositoryUrl = $"{uri.GetLeftPart(UriPartial.Authority)}/{string.Join('/', segments[..marker])}";
+        if (!TryParseRemoteUrl(repositoryUrl, organizationUrl, out parts))
+        {
+            return false;
+        }
+
+        pullRequestId = id;
+        return true;
+    }
+
+    /// <summary>
     /// Removes a password or token embedded in an http(s) URL (<c>https://user:secret@host/...</c> becomes
     /// <c>https://user@host/...</c>) so the URL is safe to display or log.
     /// </summary>

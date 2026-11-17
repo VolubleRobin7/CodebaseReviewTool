@@ -75,6 +75,7 @@ public sealed partial class ReportData
     public string ReviewedText => Review switch
     {
         { CompletedAt: { } completed } when State == ReviewState.Failed => $"{ReportFormat.Timestamp(completed)} (failed)",
+        { CompletedAt: { } completed } when State == ReviewState.Cancelled => $"{ReportFormat.Timestamp(completed)} (cancelled)",
         { CompletedAt: { } completed } => ReportFormat.Timestamp(completed),
         _ when State == ReviewState.Queued => "Queued",
         _ => "In progress",
@@ -89,8 +90,8 @@ public sealed partial class ReportData
         : null;
 
     /// <summary>
-    /// Finished steps that reported no cost: a run stopped on its timeout is killed before the agent writes its
-    /// result, so what it spent is unknown.
+    /// Finished steps that reported no cost: a run stopped on its timeout or by a cancellation is killed before the
+    /// agent writes its result, so what it spent is unknown.
     /// </summary>
     public int StepsWithUnknownCost => Review.StepRuns.Count(r => IsFinished(r) && r.CostUsd is null);
 
@@ -100,7 +101,10 @@ public sealed partial class ReportData
         : null;
 
     /// <summary>The reviewed commit, abbreviated.</summary>
-    public string ShortCommit => Review.SourceCommit.Length > 10 ? Review.SourceCommit[..10] : Review.SourceCommit;
+    public string ShortCommit => ReportFormat.ShortCommit(Review.SourceCommit);
+
+    /// <summary>True when the pull request has moved on since this review's commit; never while the review is in flight.</summary>
+    public bool IsOutOfDate => !IsInProgress && Review.IsOutOfDate(PullRequest);
 
     /// <summary>The summary step's text split into paragraphs at blank lines; empty until that step has succeeded.</summary>
     public IReadOnlyList<string> SummaryParagraphs => SucceededRun(SummaryIndex) is { } run
@@ -117,7 +121,7 @@ public sealed partial class ReportData
 
     /// <summary>
     /// The position of the first step that has not succeeded, which is where a re-run of a review that failed outside
-    /// any step (preparing its worktree, say) starts. Null when every step succeeded.
+    /// any step (preparing its worktree, say) or was cancelled starts. Null when every step succeeded.
     /// </summary>
     public int? FirstUnfinishedIndex
     {
@@ -152,7 +156,7 @@ public sealed partial class ReportData
 
     private ReviewStepRun? SucceededRun(int index) => RunAt(index) is { State: StepRunState.Succeeded } run ? run : null;
 
-    private static bool IsFinished(ReviewStepRun run) => run.State is StepRunState.Succeeded or StepRunState.Failed;
+    private static bool IsFinished(ReviewStepRun run) => run.State is StepRunState.Succeeded or StepRunState.Failed or StepRunState.Cancelled;
 
     private int IndexOf(int step)
     {

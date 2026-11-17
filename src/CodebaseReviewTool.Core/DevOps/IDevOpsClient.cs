@@ -4,8 +4,9 @@ namespace CodebaseReviewTool.Core.DevOps;
 
 /// <summary>
 /// Azure DevOps REST calls, for any server from TFS 2017 (REST 3.0) up to Azure DevOps Services (7.1).
-/// Detects the server's API version once, identifies the authenticated user and reads pull requests. Every call is
-/// read-only.
+/// Detects the server's API version once, identifies the authenticated user, reads pull requests and posts comment
+/// threads on them. Posting is the only call that writes, and the only one that needs a PAT scope beyond Code (Read):
+/// Pull Request Threads (Read &amp; write).
 /// </summary>
 public interface IDevOpsClient
 {
@@ -34,6 +35,18 @@ public interface IDevOpsClient
     /// HTTP, network or authentication failures; those come back as a failed result.
     /// </summary>
     Task<DevOpsResult<DevOpsPullRequest>> GetPullRequestAsync(ResolvedRepository repository, int id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates an active comment thread on pull request <paramref name="pullRequestId"/> of <paramref name="repository"/>,
+    /// anchored to the thread's file and line when it has them. When the server refuses the anchor (HTTP 400, such as
+    /// for a file outside the pull request), the thread is posted without it instead. Never throws for HTTP, network or
+    /// authentication failures; those come back as a failed result.
+    /// </summary>
+    Task<DevOpsResult<DevOpsCommentThread>> CreatePullRequestThreadAsync(
+        ResolvedRepository repository,
+        int pullRequestId,
+        DevOpsNewThread thread,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Outcome of <see cref="IDevOpsClient.GetCurrentUserAsync"/>.</summary>

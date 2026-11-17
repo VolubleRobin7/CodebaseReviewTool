@@ -1,0 +1,74 @@
+.app-header-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 32px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 40px;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+}
+
+.brand:hover {
+    text-decoration: none;
+}
+
+.brand-mark {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--accent-bg);
+}
+
+.app-nav {
+    display: flex;
+    gap: 28px;
+    align-self: stretch;
+}
+
+/* The links are rendered by NavLink, so they need ::deep to pick up this component's styles. */
+.app-nav ::deep a {
+    display: flex;
+    align-items: center;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.app-nav ::deep a:hover {
+    text-decoration: none;
+    color: var(--ink);
+}
+
+.app-nav ::deep a.active {
+    border-bottom-color: var(--ink);
+    color: var(--ink);
+}
+
+.header-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.icon-sun {
+    display: none;
+}
+
+:root[data-theme="dark"] .icon-sun {
+    display: block;
+}
+
+:root[data-theme="dark"] .icon-moon {
+    display: none;
+}

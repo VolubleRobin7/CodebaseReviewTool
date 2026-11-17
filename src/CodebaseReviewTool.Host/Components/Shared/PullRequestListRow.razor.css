@@ -1,0 +1,142 @@
+.pr-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 32px;
+    align-items: center;
+    padding: 26px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.pr-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.pr-title-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 14px;
+}
+
+.pr-number {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--faint);
+}
+
+.pr-title {
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    text-wrap: pretty;
+}
+
+.pr-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+.pr-meta-item {
+    display: flex;
+    gap: 8px;
+}
+
+.pr-meta-label {
+    color: var(--faint);
+}
+
+.pr-meta-value {
+    color: var(--ink);
+}
+
+.pr-row-error {
+    display: block;
+    font-size: 13px;
+    color: var(--high);
+}
+
+.pr-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 16px;
+    min-width: 170px;
+}
+
+.pr-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+.pr-result {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    font-size: 12.5px;
+    color: var(--muted);
+}
+
+.pr-result-high,
+.pr-failed {
+    color: var(--high);
+}
+
+.pr-failed {
+    font-size: 13.5px;
+}
+
+.pr-cancelled {
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+/* Sizes the shared icon button down for "Review again". */
+.pr-icon-btn {
+    width: 32px;
+    height: 32px;
+}
+
+.pr-icon-btn:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+/* The small, quiet controls either side of a running review's status text. */
+.pr-status-icon {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    padding: 0;
+    color: var(--faint);
+    cursor: pointer;
+}
+
+.pr-status-icon:hover:not(:disabled) {
+    background: var(--sunken);
+    color: var(--ink);
+    text-decoration: none;
+}
+
+.pr-stop:hover:not(:disabled) {
+    color: var(--high);
+}
+
+.pr-status-icon:disabled {
+    cursor: default;
+    opacity: 0.45;
+}

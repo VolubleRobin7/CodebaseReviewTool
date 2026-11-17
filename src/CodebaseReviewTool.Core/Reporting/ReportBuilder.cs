@@ -104,6 +104,11 @@ public static class ReportBuilder
             html.Append("<p class=\"report-error\">").Append(Encode(error)).Append("</p>\n");
         }
 
+        if (report.State == ReviewState.Cancelled)
+        {
+            html.Append("<p class=\"report-note\">").Append(Encode(ReportFormat.CancelledNote)).Append("</p>\n");
+        }
+
         html.Append("</header>\n");
     }
 
@@ -231,7 +236,9 @@ public static class ReportBuilder
         {
             { State: StepRunState.Failed } => $"This step failed: {run.Error}",
             { State: StepRunState.Succeeded } => emptyText,
+            { State: StepRunState.Cancelled } => "This step was cancelled before it finished.",
             _ when report.State == ReviewState.Failed => "This step did not run because the review stopped earlier.",
+            _ when report.State == ReviewState.Cancelled => "This step did not run because the review was cancelled.",
             _ => "This step has not finished yet.",
         };
 

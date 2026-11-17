@@ -1,0 +1,73 @@
+@using System.Globalization
+@using CodebaseReviewTool.Core.Agents
+@using CodebaseReviewTool.Core.Hosting
+
+@implements IDisposable
+
+@inject IClaudeUsage Usage
+
+@* Renders nothing when /usage lists no session limit, which is the case when the CLI runs on an API key. *@
+@if (Usage.Snapshot?.Session is { } session)
+{
+    var percent = (int)Math.Round(session.PercentUsed, MidpointRounding.AwayFromZero);
+
+    <div class="@($"usage-meter {LevelClass(percent)}")" title="@Tooltip(Usage.Snapshot)">
+        <span class="usage-label">Session usage</span>
+
+        <span aria-label="Claude session usage"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="@percent"
+              class="usage-track"
+              role="progressbar">
+
+            <span class="usage-fill" style="@($"width: {percent.ToString(CultureInfo.InvariantCulture)}%")"></span>
+
+        </span>
+
+        <span class="usage-value">@percent%</span>
+
+        @if (session.Resets is { } resets)
+        {
+            <span class="usage-reset">resets @resets</span>
+        }
+    </div>
+}
+else if (Usage.Snapshot is null && Usage.LastError is { } error)
+{
+    <div class="usage-meter usage-unavailable" title="@error">Usage unavailable</div>
+}
+else if (Usage.Snapshot is null)
+{
+    <div class="usage-meter usage-unavailable">Checking usage…</div>
+}
+
+@code {
+    protected override void OnInitialized() => Usage.Changed += OnUsageChanged;
+
+    public void Dispose() => Usage.Changed -= OnUsageChanged;
+
+    // The monitor raises Changed on its own thread; InvokeAsync moves the render onto this circuit's dispatcher.
+    private void OnUsageChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private static string LevelClass(int percent) => percent switch
+    {
+        >= 90 => "usage-critical",
+        >= 75 => "usage-warning",
+        _ => string.Empty,
+    };
+
+    private string Tooltip(ClaudeUsageSnapshot snapshot)
+    {
+        var lines = snapshot.Limits.Select(l =>
+            $"{l.Name}: {Math.Round(l.PercentUsed, MidpointRounding.AwayFromZero)}% used{(l.Resets is null ? string.Empty : $", resets {l.Resets}")}");
+
+        var checkedLine = $"Checked {RelativeTime.Ago(snapshot.CheckedUtc)}";
+        if (Usage.LastError is { } error)
+        {
+            checkedLine += $"; the latest check failed: {error}";
+        }
+
+        return string.Join('\n', lines.Append(checkedLine));
+    }
+}

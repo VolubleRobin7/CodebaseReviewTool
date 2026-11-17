@@ -25,6 +25,10 @@ public sealed class ClaudeOptions
     [Range(1, 1000, ErrorMessage = "Claude:MaxTurns must be between {1} and {2}.")]
     public int MaxTurns { get; set; } = 50;
 
+    /// <summary>How often the home page's usage bar is refreshed with <c>/usage</c>; reviews also refresh it.</summary>
+    [Range(1, 60, ErrorMessage = "Claude:UsageRefreshMinutes must be between {1} and {2}.")]
+    public int UsageRefreshMinutes { get; set; } = 5;
+
     /// <summary>Passed to <c>--allowedTools</c>. No default list here: list binding appends to existing items.</summary>
     [MinLength(1, ErrorMessage = "Claude:AllowedTools must list at least one tool.")]
     public List<string> AllowedTools { get; set; } = [];

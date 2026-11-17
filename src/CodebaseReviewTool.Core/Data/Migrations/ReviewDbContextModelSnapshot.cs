@@ -66,6 +66,12 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                     b.Property<int?>("Line")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("PostedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("PostedThreadId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("ReviewId")
                         .HasColumnType("INTEGER");
 
@@ -155,6 +161,9 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("TEXT");
 
@@ -203,6 +212,9 @@ namespace CodebaseReviewTool.Core.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("AgentSessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CancelledAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CommandLine")

@@ -18,7 +18,8 @@ numbered release unless you want to try unreleased changes.
 - The .NET 10 Desktop Runtime and ASP.NET Core Runtime (the exe says which is missing if either is not installed)
 - git
 - Claude Code CLI, signed in (its path is set in `appsettings.json` under `Claude:ExecutablePath`)
-- An Azure DevOps personal access token with **Code (Read)** scope
+- An Azure DevOps personal access token with the **Code (Read)** scope, plus **Pull Request
+  Threads (Read & write)** to post issues to pull requests as comments
 - Existing local clones of the repositories to review (the tool fetches but never clones)
 
 ### First Run
@@ -53,11 +54,61 @@ button that saves the whole thing as a single HTML file. "Review again" reviews 
 latest commit as a new review, keeping the earlier reports; a failed step can be re-run from the
 report.
 
+Each issue in the report has a tickbox. Tick the ones worth raising and press "Post to pull
+request" under the table: each becomes its own active comment thread on the pull request,
+anchored to the issue's file and line where it has them (or on the pull request as a whole when
+DevOps cannot place it there). Posted issues are marked "Posted", link to their thread, and cannot
+be posted again.
+
 The Configuration page holds the flow: each step has a name, a prompt (or a Claude Code skill,
 started with `/skill-name`), a model and a timeout, with "Reset to default" restoring the shipped
 prompt and a Preview that renders the prompt against a real pull request. Below the flow are checks
-for Claude, git, DevOps and each repository, the list of repositories, a link to the Worktrees page
-where review worktrees can be removed, and the effective configuration.
+for Claude, git, DevOps and each repository, the list of repositories, the review worktrees
+(each with Open folder and Remove), and the effective configuration.
+
+### Starting a review from a script
+
+The same localhost address has an HTTP API, so a script, a build step or a Claude Code skill can
+start a review and wait for it. It has no authentication and, like the UI, listens only on
+localhost.
+
+`POST /api/reviews` with a JSON body starts a review and answers straight away:
+
+```bash
+curl -X POST http://localhost:5210/api/reviews -H "Content-Type: application/json" -d "{\"pullRequestUrl\":\"https://dev.azure.com/org/project/_git/repo/pullrequest/123\"}"
+```
+
+The body is either `pullRequestUrl` (the pull request page), or `pullRequestId` with
+`repositoryKey` (which can be left out when only one repository is configured). The tool reads the
+pull request from DevOps first, so a commit pushed moments ago is reviewed even if the poller has
+not seen it yet. The answer is the review's status (below):
+
+| Status | Meaning |
+|---|---|
+| 202 Accepted | A new review was queued; `Location` is its status URL. |
+| 200 OK | The pull request already has a review queued or running; that review is returned. |
+| 400 | The body names no pull request, or a repository that is not configured. |
+| 404 | DevOps has no such pull request. |
+| 409 | The pull request is completed or abandoned. |
+| 502 | DevOps could not be reached or refused the request. |
+
+`GET /api/reviews/{id}` returns the review's status: `state` (`queued`, `preparingWorktree`,
+`running`, `completed`, `failed` or `cancelled`), `isFinished`, the current step and each step's
+state, `error`, issue counts by severity, `isOutOfDate` (commits were pushed after the reviewed
+one) and `links.report` (the report page), `links.download` (the standalone HTML report) and
+`links.status`. While the review is unfinished the response has `Retry-After: 30`. It is 404 when
+there is no such review, which includes a review stopped before any step finished, since stopping
+that discards it.
+
+To wait for a review, poll its status until `isFinished` is true, pausing for the `Retry-After`
+seconds between calls. This loop also stops if the review is gone (404):
+
+```bash
+while json=$(curl -sf http://localhost:5210/api/reviews/42); do
+  echo "$json" | grep -q '"isFinished":true' && break
+  sleep 30
+done
+```
 
 ### What it sends, and what it costs
 
@@ -68,7 +119,10 @@ where review worktrees can be removed, and the effective configuration.
   Anthropic under your own Claude Code account, the same as running `claude` in that folder
   yourself. The tool allowlist limits each run to reading files and running read-only git commands.
 - **Each review costs Claude Code usage**, one headless run per step. The report shows what each
-  step cost and the review's total; a small pull request comes to roughly a dollar.
+  step cost and the review's total; a small pull request comes to roughly a dollar. The home page
+  shows how much of your plan's current session limit is used (hover it for the weekly limits),
+  read with `claude -p /usage`, which costs no usage, every `Claude:UsageRefreshMinutes` and after
+  each review change. It is hidden when the CLI is signed in with an API key rather than a plan.
 - **Everything else stays on your machine**: the database in `%LOCALAPPDATA%\CodebaseReviewTool`,
   the worktrees under `Git:WorktreeRoot`, and the UI, which only listens on localhost.
 
@@ -154,8 +208,13 @@ pull request.
 
 Each review gets its own git worktree, detached at the pull request's source commit, under
 `Git:WorktreeRoot` (`<root>\<repository key>\pr-<id>-r<review id>`); "Start review" fetches
-the clone and creates it. Worktrees are removed from the Worktrees page (linked from
-Configuration) or automatically `Git:AutoCleanupAfterDays` days after a review finishes.
+the clone and creates it. Worktrees are removed from the Worktrees section of the
+Configuration page or automatically once the review has finished (completed or failed):
+`Git:AutoCleanupAfterDays` days (default 14) after the review finished while its pull request is still
+open, or `Git:AutoCleanupAfterPullRequestClosedDays` days (default 1) after the pull request is completed
+or abandoned, whichever comes first. A review still queued or running is never cleaned up. Cleanup runs
+every six hours, so `0` removes the worktree within six hours. A pull request counts as closed once the
+DevOps poller no longer sees it as active.
 
 Once the worktree is ready the review runs the flow steps one after another, each as its own 
 headless Claude Code CLI run (`claude -p`) inside the

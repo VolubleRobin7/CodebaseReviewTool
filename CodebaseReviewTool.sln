@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.11.12328.437 stable
+VisualStudioVersion = 18.11.12328.437
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
@@ -11,6 +11,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodebaseReviewTool.Host", "
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{7C70717D-1B13-4DFF-9FAF-1A94A2DFDB8B}"
 	ProjectSection(SolutionItems) = preProject
+		.github\workflows\dev-release.yml = .github\workflows\dev-release.yml
 		README.md = README.md
 	EndProjectSection
 EndProject
@@ -55,5 +56,8 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{A27E8060-38B2-4B5A-8BBE-91184B7AD598} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{C3CCFB84-D8DB-4267-9257-BC4E40E8501D} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D9C7D78B-91D5-4870-A22F-1CA1AEF2940E}
 	EndGlobalSection
 EndGlobal

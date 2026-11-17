@@ -37,6 +37,17 @@ public static class ReportFormat
     /// <summary>Formats a cost in US dollars to the cent, or to four decimals for a run that cost less than a cent.</summary>
     public static string Cost(double usd) => usd.ToString(usd is > 0 and < 0.01 ? "$0.0000" : "$0.00", CultureInfo.InvariantCulture);
 
+    /// <summary>Abbreviates a commit id to the 10 characters the report and the home page show.</summary>
+    public static string ShortCommit(string commit) => commit.Length > 10 ? commit[..10] : commit;
+
+    /// <summary>The tooltip on the "Review out of date" marker.</summary>
+    public static string OutOfDateNote(string reviewedCommit, string latestCommit) =>
+        $"New commits were pushed after this review. It reviewed {ShortCommit(reviewedCommit)}; the pull request is now at {ShortCommit(latestCommit)}.";
+
+    /// <summary>Explains, at the top of a cancelled review's report, why some sections are missing.</summary>
+    public const string CancelledNote =
+        "This review was cancelled. Steps that finished before then are shown; the rest did not complete.";
+
     /// <summary>The tooltip beside a review's cost when <paramref name="steps"/> finished steps reported none.</summary>
     public static string UnknownCostNote(int steps) =>
         steps == 1

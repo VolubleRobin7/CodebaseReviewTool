@@ -1,0 +1,94 @@
+/* Page head: title across the top, the counts line and the usage bar share a row, the poll status below. */
+.home-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px 24px;
+}
+
+.home-head > .page-title {
+    grid-column: 1 / -1;
+}
+
+.home-head > .page-lede {
+    grid-row: 2;
+    grid-column: 1;
+    max-width: 620px;
+}
+
+/* The usage bar is rendered by the UsageMeter component, so it needs ::deep. */
+.home-head > ::deep .usage-meter {
+    grid-row: 2;
+    grid-column: 2;
+}
+
+.home-head > .poll-status {
+    grid-row: 3;
+    grid-column: 1 / -1;
+}
+
+.poll-status {
+    margin: 0;
+    font-size: 13px;
+    color: var(--faint);
+}
+
+.poll-error {
+    color: var(--high);
+    overflow-wrap: anywhere;
+}
+
+/* Reads as one more character of the status line; spins while a poll is running. */
+.poll-refresh {
+    display: inline-block;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin-left: 4px;
+    font: inherit;
+    color: inherit;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.poll-refresh:hover:not(:disabled) {
+    color: var(--ink);
+}
+
+.poll-refresh:disabled {
+    cursor: default;
+    animation: spin 1s linear infinite;
+}
+
+/* ---- Pull request lists ---- */
+
+.pr-section {
+    gap: 0;
+}
+
+.list-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--ink);
+}
+
+.list-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+@media (max-width: 720px) {
+    .home-head {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .home-head > .page-lede,
+    .home-head > ::deep .usage-meter,
+    .home-head > .poll-status {
+        grid-row: auto;
+        grid-column: 1;
+    }
+}

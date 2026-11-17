@@ -126,7 +126,7 @@ and the only one with an entry point.
 | `Program.cs`, `AppRunner.cs` | | `Program` reads configuration, takes the single-instance mutex, builds the `WebApplication` (`AddReviewCore`, Razor components, the API) and picks a mode. `AppRunner` runs it: in tray mode Kestrel starts in the background and the main STA thread runs the tray message loop, then the host is stopped and waited for; with `Tray:Enabled=false` (or `--console`) it blocks on the web host instead, which is how it runs under `dotnet run` and Claude Code's preview. Startup failures are reported as a plain list, on the console or in a message box. |
 | `Api/` | `HealthEndpoints.cs` (`MapHealthApi`) | Minimal API endpoint groups, one file per group. Only `/api/health` exists now; the growth path for the API is adding files here that call Core services. |
 | `Components/Layout/` | `MainLayout`, `NavMenu`, `ReconnectModal` (template default, kept as is) | The mockup's header: brand, "Pull requests" nav link, theme toggle and the gear that opens Configuration. |
-| `Components/Pages/` | `Home` (`/`, the pull request list), `ReviewReport` (`/reviews/{id}`), `Configuration` (`/configuration`: flow steps, checks, repositories, environment), `Worktrees` (`/worktrees`, linked from Configuration) | One page per screen (§10). Pages inject Core services directly; there is no HTTP hop between UI and service because they share a process. Pages subscribe to `ReviewEvents` for live status and call `InvokeAsync(StateHasChanged)`. |
+| `Components/Pages/` | `Home` (`/`, the pull request list), `ReviewReport` (`/reviews/{id}`), `Configuration` (`/configuration`: flow steps, checks, repositories, worktrees, environment) | One page per screen (§10). Pages inject Core services directly; there is no HTTP hop between UI and service because they share a process. Pages subscribe to `ReviewEvents` for live status and call `InvokeAsync(StateHasChanged)`. |
 | `Components/Shared/` | `IssuesTable`, `DiagramFrame`, `SeverityBadge`, `PlaceholderReference`, `RunDetails`, `StepEditor` | Reusable pieces of the report and configuration pages. `DiagramFrame` owns the sandboxed iframe and the height `postMessage` handshake. |
 | `Tray/` | `TrayApplicationContext`, `StartupShortcut`, `SingleInstance`, `AppIcon`, `AppUrl`, `Browser`, `ConsoleWindow` | NotifyIcon with context menu, open-browser action, balloon notifications from `ReviewEvents`, the Startup-folder shortcut toggle, the named mutex that makes a second launch just open the browser, and small helpers for the icon (one `wwwroot/favicon.ico` serves as exe icon, tray icon and favicon), the app URL, launching the browser and attaching a console. |
 | `wwwroot/` | `app.css`, `theme.js`, `diagram-frame.js` | Design tokens and components from the mockup (§10); the theme script that applies the saved light/dark choice before paint; the few lines of JS for iframe height. System fonts only, so nothing loads from the internet and no font files ship. |
@@ -169,7 +169,8 @@ dotnet ef migrations add <Name> --project src/CodebaseReviewTool.Core --startup-
   "Git": {
     "ExecutablePath": "git",                                      // resolved via PATH if bare
     "WorktreeRoot": "C:\\Repos\\_review-worktrees",
-    "AutoCleanupAfterDays": 14,
+    "AutoCleanupAfterDays": 14,                                   // after the review finishes, PR still open
+    "AutoCleanupAfterPullRequestClosedDays": 1,                   // after the PR is completed or abandoned
     "FetchBeforeReview": true,
     "CommandTimeoutMinutes": 10                                   // fetch of a large clone can be slow
   },
@@ -416,8 +417,9 @@ Goal: a review gets its own worktree at the PR's source commit.
   the row on the Worktrees page with Retry, not stored on the `Review`, since writing its
   error field would turn a completed review into a failed one. (The team's `close-worktree` skill documents the
   same failure modes; reuse its approach, not its code.)
-- `WorktreeCleanupService` removes worktrees older than `AutoCleanupAfterDays` for
-  Completed/Failed reviews.
+- `WorktreeCleanupService` removes worktrees of Completed/Failed reviews `AutoCleanupAfterDays` after the
+  review finished, or `AutoCleanupAfterPullRequestClosedDays` after its PR was completed or abandoned,
+  whichever comes first.
 - Worktrees page (`/worktrees`, linked from the Configuration page rather than the
   header, since the mockup's header has only Pull requests and the gear): path, PR, age,
   Remove button, "Open folder" button.
@@ -547,7 +549,9 @@ Candidates, ordered by value; pick after Phases 0–6 are in use.
   single-instance mutex is keyed on the port, so the two can run together.
 - The database lives in `%LOCALAPPDATA%\CodebaseReviewTool` so a rebuild or clean never
   deletes review history.
-- Only the DevOps PAT is a secret. It needs Code (Read) scope only.
+- Only the DevOps PAT is a secret. It needs the Code (Read) scope, plus Pull Request Threads
+  (Read & write) to post issues to pull requests as comment threads (the only call that writes
+  to DevOps).
 - Running with the `http` launch profile logs a harmless Kestrel warning about
   overriding addresses, because launchSettings and the Kestrel section name the same
   URL. Both are kept: launchSettings so Visual Studio opens the browser, Kestrel so

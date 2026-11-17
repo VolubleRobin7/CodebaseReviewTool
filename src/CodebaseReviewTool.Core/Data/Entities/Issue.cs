@@ -24,4 +24,10 @@ public class Issue
     public string Description { get; set; } = string.Empty;
 
     public string? Suggestion { get; set; }
+
+    /// <summary>When the issue was posted to its pull request as a comment thread (UTC); null until then.</summary>
+    public DateTime? PostedAt { get; set; }
+
+    /// <summary>The id of the DevOps comment thread the issue was posted as; null until it is posted.</summary>
+    public int? PostedThreadId { get; set; }
 }

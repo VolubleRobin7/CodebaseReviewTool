@@ -53,7 +53,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PollControl>();
         services.AddSingleton<IPollControl>(sp => sp.GetRequiredService<PollControl>());
         services.AddSingleton<ReviewQueue>();
+        services.AddSingleton<ReviewRuns>();
         services.AddSingleton<ReviewService>();
+        services.AddSingleton<ReviewStatusReader>();
+        services.AddSingleton<IssuePostingService>();
 
         // The AI tool that runs each flow step; another tool means another IAgentRunner registered here.
         services.AddSingleton<IAgentRunner, ClaudeCodeRunner>();
@@ -68,6 +71,10 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<DevOpsPollService>();
         services.AddHostedService<ReviewQueueService>();
         services.AddHostedService<WorktreeCleanupService>();
+
+        services.AddSingleton<ClaudeUsageMonitor>();
+        services.AddSingleton<IClaudeUsage>(sp => sp.GetRequiredService<ClaudeUsageMonitor>());
+        services.AddHostedService(sp => sp.GetRequiredService<ClaudeUsageMonitor>());
 
         return services;
     }
