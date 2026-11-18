@@ -1,8 +1,14 @@
-using CodebaseReviewTool.Core;
-using CodebaseReviewTool.Core.Configuration;
-using CodebaseReviewTool.Host.Api;
-using CodebaseReviewTool.Host.Components;
+using CodebaseReviewTool.Agents;
+using CodebaseReviewTool.Api;
+using CodebaseReviewTool.Application;
+using CodebaseReviewTool.Application.Configuration;
+using CodebaseReviewTool.Application.Hosting;
+using CodebaseReviewTool.Git;
+using CodebaseReviewTool.Host.Hosting;
 using CodebaseReviewTool.Host.Tray;
+using CodebaseReviewTool.Persistence;
+using CodebaseReviewTool.RepositoryHosts;
+using CodebaseReviewTool.Web.Components;
 
 namespace CodebaseReviewTool.Host;
 
@@ -71,8 +77,22 @@ public sealed class Program
         // Development, so the exe works when started from bin as Production. No effect on published output.
         builder.WebHost.UseStaticWebAssets();
 
-        builder.Services.AddReviewCore(builder.Configuration);
-        builder.Services.AddSingleton<StartupShortcut>();
+        builder.Services.AddPersistence(builder.Configuration);
+        builder.Services.AddAgents(builder.Configuration);
+        builder.Services.AddGit(builder.Configuration);
+        builder.Services.AddRepositoryHosts(builder.Configuration);
+        builder.Services.AddApplication(builder.Configuration);
+        builder.Services.AddSingleton<IStartupShortcut, StartupShortcut>();
+
+        // Hosted services start in registration order. The initializer runs after options validation and before
+        // Kestrel listens (resolves repositories, migrates and seeds), so the services registered after it always
+        // find the registry filled and the schema current. The queue recovers the previous run's reviews in its own
+        // start, also before Kestrel listens.
+        builder.Services.AddHostedService<StartupInitializer>();
+        builder.Services.AddHostedService<DevOpsPollService>();
+        builder.Services.AddHostedService<ReviewQueueService>();
+        builder.Services.AddHostedService<WorktreeCleanupService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<ClaudeUsageMonitor>());
 
         builder.Services.AddRazorComponents()
             .AddInteractiveServerComponents();

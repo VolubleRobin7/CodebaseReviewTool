@@ -1,5 +1,5 @@
 using System.Windows.Forms;
-using CodebaseReviewTool.Core.Configuration;
+using CodebaseReviewTool.Application.Configuration;
 using CodebaseReviewTool.Host.Tray;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
@@ -41,9 +41,9 @@ internal static class AppRunner
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
+        System.Windows.Forms.Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        System.Windows.Forms.Application.EnableVisualStyles();
+        System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
 
         try
         {
@@ -72,7 +72,7 @@ internal static class AppRunner
 
         using (var tray = new TrayApplicationContext(app.Services, AppUrl.FromServer(app)))
         {
-            Application.Run(tray);
+            System.Windows.Forms.Application.Run(tray);
         }
 
         Stop(app);

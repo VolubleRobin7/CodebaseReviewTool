@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Temporary: the DevOps client takes a ResolvedRepository, until that type moves to Application. -->
+    <ProjectReference Include="..\CodebaseReviewTool.Git\CodebaseReviewTool.Git.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Infrastructure\CodebaseReviewTool.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

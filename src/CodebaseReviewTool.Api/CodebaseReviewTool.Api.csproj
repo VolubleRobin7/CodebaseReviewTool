@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The implicit usings of the Web SDK, which these files had when they were part of Host. -->
+    <Using Include="System.Net.Http.Json" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodebaseReviewTool.Application\CodebaseReviewTool.Application.csproj" />
+    <!-- Temporary: the review endpoints use entities, the DevOps client and the repository types directly. -->
+    <ProjectReference Include="..\CodebaseReviewTool.Domain\CodebaseReviewTool.Domain.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Git\CodebaseReviewTool.Git.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.RepositoryHosts\CodebaseReviewTool.RepositoryHosts.csproj" />
+  </ItemGroup>
+
+</Project>

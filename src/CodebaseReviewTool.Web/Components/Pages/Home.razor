@@ -1,0 +1,355 @@
+@using CodebaseReviewTool.Application.Hosting
+@using CodebaseReviewTool.Application.Repositories
+@using CodebaseReviewTool.Application.Reviews
+@using CodebaseReviewTool.Domain.Enums
+@using CodebaseReviewTool.Persistence
+@using CodebaseReviewTool.Web.Components.Shared
+@using Microsoft.EntityFrameworkCore
+
+@rendermode InteractiveServer
+
+@implements IDisposable
+
+@inject IDbContextFactory<ReviewDbContext> DbContextFactory
+@inject ILogger<Home> Logger
+@inject IPollControl PollControl
+@inject IRepositoryRegistry RepositoryRegistry
+@inject ReviewEvents ReviewEvents
+@inject ReviewService ReviewService
+
+@page "/"
+
+<PageTitle>Pull requests - Codebase Review Tool</PageTitle>
+
+@* A grid rather than the usual text column, so the usage bar shares the counts line's row at the right edge. *@
+<div class="home-head page-head">
+    <h1 class="page-title">Open pull requests</h1>
+    <p class="page-lede">@_items.Count open · @_items.Count(i => i.IsReviewing) reviewing · @_items.Count(i => i.State == ReviewState.Completed) reviewed</p>
+
+    <UsageMeter />
+
+    <p class="@(PollError is null ? "poll-status" : "poll-error poll-status")">
+        @(PollError ?? PollText)
+
+        @if (PollControl.IsEnabled)
+        {
+            <button @onclick="PollControl.RequestPoll"
+                    aria-label="Refresh now"
+                    class="poll-refresh"
+                    disabled="@PollControl.IsPolling"
+                    title="Refresh now"
+                    type="button">
+
+                ↻
+
+            </button>
+        }
+    </p>
+</div>
+
+<section class="pr-section section">
+    <div class="list-head">
+        <h2 class="list-title">Reviewed</h2>
+        <span class="count">@_reviewed.Count</span>
+    </div>
+
+    @if (_reviewed.Count == 0)
+    {
+        <p class="empty">No reviews yet.</p>
+    }
+
+    @foreach (var item in _reviewed)
+    {
+        <PullRequestListRow @key="item.Key"
+                            Error="@_rowErrors.GetValueOrDefault(item.Key)"
+                            IsCancelling="@_cancelling.Contains(item.Key)"
+                            IsStarting="@_starting.Contains(item.Key)"
+                            Item="item"
+                            OnCancel="() => ConfirmCancel(item)"
+                            OnReviewAgain="() => _reviewAgain = item"
+                            OnStart="() => StartReviewAsync(item)" />
+    }
+</section>
+
+<section class="pr-section section">
+    <div class="list-head">
+        <h2 class="list-title">Open</h2>
+        <span class="count">@_open.Count</span>
+    </div>
+
+    @if (_items.Count == 0)
+    {
+        <p class="empty">No open pull requests.</p>
+    }
+    else if (_open.Count == 0)
+    {
+        <p class="empty">Every open pull request has a review.</p>
+    }
+
+    @foreach (var item in _open)
+    {
+        <PullRequestListRow @key="item.Key"
+                            Error="@_rowErrors.GetValueOrDefault(item.Key)"
+                            IsCancelling="@_cancelling.Contains(item.Key)"
+                            IsStarting="@_starting.Contains(item.Key)"
+                            Item="item"
+                            OnCancel="() => ConfirmCancel(item)"
+                            OnReviewAgain="() => _reviewAgain = item"
+                            OnStart="() => StartReviewAsync(item)" />
+    }
+</section>
+
+@if (_reviewAgain is { } again)
+{
+    <Modal OnClose="() => _reviewAgain = null"
+           Title="@($"Review #{again.PullRequest.Id} again?")">
+
+        <ChildContent>
+            <p class="modal-text">This starts a new review of the pull request's latest commit and runs every step again. The current report stays in the pull request's review history.</p>
+        </ChildContent>
+
+        <Footer>
+            <button @onclick="() => _reviewAgain = null"
+                    class="btn btn-secondary"
+                    type="button">
+
+                Cancel
+
+            </button>
+
+            <button @onclick="() => ReviewAgainAsync(again)"
+                    class="btn btn-primary"
+                    type="button">
+
+                Start review
+
+            </button>
+        </Footer>
+
+    </Modal>
+}
+
+@if (_cancelTarget is { } target)
+{
+    <Modal OnClose="() => _cancelTarget = null"
+           Title="@($"Stop the review of #{target.PullRequest.Id}?")">
+
+        <ChildContent>
+            <p class="modal-text">@CancelText(target)</p>
+        </ChildContent>
+
+        <Footer>
+            <button @onclick="() => _cancelTarget = null"
+                    class="btn btn-secondary"
+                    type="button">
+
+                Keep reviewing
+
+            </button>
+
+            <button @onclick="() => CancelReviewAsync(target)"
+                    class="btn btn-primary"
+                    type="button">
+
+                Stop review
+
+            </button>
+        </Footer>
+
+    </Modal>
+}
+
+@code {
+    // Re-renders between polls so "Updated N minutes ago" stays true.
+    private static readonly TimeSpan _clockInterval = TimeSpan.FromSeconds(30);
+
+    private readonly Dictionary<string, string> _rowErrors = [];
+    private readonly HashSet<string> _starting = [];
+    private readonly HashSet<string> _cancelling = [];
+
+    private List<PullRequestListItem> _items = [];
+    private List<PullRequestListItem> _reviewed = [];
+    private List<PullRequestListItem> _open = [];
+    private Timer? _clock;
+    private PullRequestListItem? _reviewAgain;
+    private PullRequestListItem? _cancelTarget;
+
+    private string? PollError => PollControl.IsEnabled ? PollControl.LastError : null;
+
+    private string PollText => PollControl switch
+    {
+        { IsEnabled: false } => "DevOps polling is disabled: no PAT is set and Windows authentication is off.",
+        { LastSuccessfulPollUtc: { } last } => $"Updated {RelativeTime.Ago(last)}",
+        { IsPolling: true } => "Fetching pull requests…",
+        _ => "Waiting for the first poll.",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        ReviewEvents.PullRequestsChanged += OnPullRequestsChanged;
+        ReviewEvents.ReviewChanged += OnReviewChanged;
+        PollControl.Changed += OnPollChanged;
+        _clock = new Timer(_ => OnPollChanged(), null, _clockInterval, _clockInterval);
+
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        ReviewEvents.PullRequestsChanged -= OnPullRequestsChanged;
+        ReviewEvents.ReviewChanged -= OnReviewChanged;
+        PollControl.Changed -= OnPollChanged;
+        _clock?.Dispose();
+    }
+
+    // Event handlers run on the publisher's thread; InvokeAsync moves the work onto this circuit's dispatcher.
+    private void OnPullRequestsChanged() => _ = InvokeAsync(ReloadAsync);
+
+    private void OnReviewChanged(ReviewChangedEventArgs args) => _ = InvokeAsync(ReloadAsync);
+
+    private void OnPollChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Reloading the pull request list failed");
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbContextFactory.CreateDbContextAsync();
+
+        // Rows of repositories no longer configured are never polled again, so they are left out.
+        var keys = RepositoryRegistry.Repositories.Select(r => r.Key).ToList();
+
+        var pullRequests = await db.PullRequests
+            .AsNoTracking()
+            .Where(p => p.IsOpen && keys.Contains(p.RepositoryKey))
+            .ToListAsync();
+
+        // Only each open pull request's latest review matters here (ids grow, so the highest is the latest); its step
+        // runs are loaded because the review's state is derived from them.
+        var latestReviews = await db.Reviews
+            .AsNoTracking()
+            .Include(r => r.StepRuns)
+            .Where(r => r.PullRequest!.IsOpen
+                && keys.Contains(r.RepositoryKey)
+                && r.Id == db.Reviews
+                    .Where(o => o.PullRequestId == r.PullRequestId && o.RepositoryKey == r.RepositoryKey)
+                    .Max(o => o.Id))
+            .ToListAsync();
+
+        // Issue counts are aggregated in the database rather than loading every issue.
+        var latestIds = latestReviews.Select(r => r.Id).ToList();
+        var issueCounts = await db.Issues
+            .Where(i => latestIds.Contains(i.ReviewId))
+            .GroupBy(i => i.ReviewId)
+            .Select(g => new
+            {
+                ReviewId = g.Key,
+                Total = g.Count(),
+                High = g.Count(i => i.Severity == IssueSeverity.Critical || i.Severity == IssueSeverity.High),
+            })
+            .ToDictionaryAsync(c => c.ReviewId);
+
+        var reviews = latestReviews.ToDictionary(r => PullRequestListItem.KeyFor(r.RepositoryKey, r.PullRequestId));
+        var flowSteps = await db.FlowSteps.OrderBy(s => s.Step).Select(s => s.Step).ToListAsync();
+
+        _items = [.. pullRequests.Select(p =>
+        {
+            var review = reviews.GetValueOrDefault(PullRequestListItem.KeyFor(p.RepositoryKey, p.Id));
+            var counts = review is null ? null : issueCounts.GetValueOrDefault(review.Id);
+            var name = RepositoryRegistry.Find(p.RepositoryKey)?.DisplayName ?? p.RepositoryKey;
+            return new PullRequestListItem(p, name, review, counts?.Total ?? 0, counts?.High ?? 0, flowSteps);
+        })];
+
+        _reviewed = [.. _items
+            .Where(i => i.LatestReview is not null)
+            .OrderByDescending(i => i.LatestReview!.QueuedAt)
+            .ThenByDescending(i => i.LatestReview!.Id)];
+
+        _open = [.. _items
+            .Where(i => i.LatestReview is null)
+            .OrderByDescending(i => i.PullRequest.CreatedAt)];
+    }
+
+    private Task ReviewAgainAsync(PullRequestListItem item)
+    {
+        _reviewAgain = null;
+        return StartReviewAsync(item);
+    }
+
+    private void ConfirmCancel(PullRequestListItem item)
+    {
+        _rowErrors.Remove(item.Key);
+        _cancelTarget = item;
+    }
+
+    private async Task CancelReviewAsync(PullRequestListItem item)
+    {
+        _cancelTarget = null;
+        if (item.LatestReview is not { } review || !_cancelling.Add(item.Key))
+        {
+            return;
+        }
+
+        try
+        {
+            // Stopping waits for the agent to exit; ReviewChanged then reloads the list with the row's new state.
+            await ReviewService.CancelReviewAsync(review.Id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _rowErrors[item.Key] = ex.Message;
+        }
+        finally
+        {
+            _cancelling.Remove(item.Key);
+        }
+    }
+
+    private static string CancelText(PullRequestListItem item)
+    {
+        var isQueued = item.State == ReviewState.Queued;
+        var stopped = isQueued ? "This takes the review out of the queue." : "The step in progress is stopped.";
+
+        // A review with nothing finished is removed rather than kept, since its report would be empty.
+        return item.FinishedStepCount switch
+        {
+            0 when isQueued => "This takes the review out of the queue before it starts.",
+            0 => "No step has finished yet, so the review is discarded and its worktree removed.",
+            1 => $"{stopped} The step that has finished keeps its result, and the report marks the rest as cancelled.",
+            var count => $"{stopped} The {count} steps that have finished keep their results, and the report marks the rest as cancelled.",
+        };
+    }
+
+    private async Task StartReviewAsync(PullRequestListItem item)
+    {
+        if (!_starting.Add(item.Key))
+        {
+            return;
+        }
+
+        _rowErrors.Remove(item.Key);
+        try
+        {
+            // ReviewChanged reloads the list, which moves the row into its new state.
+            await ReviewService.StartReviewAsync(item.PullRequest.Id, item.PullRequest.RepositoryKey);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _rowErrors[item.Key] = ex.Message;
+        }
+        finally
+        {
+            _starting.Remove(item.Key);
+        }
+    }
+}

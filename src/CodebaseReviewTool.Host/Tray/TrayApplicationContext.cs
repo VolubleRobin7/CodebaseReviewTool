@@ -1,9 +1,9 @@
 using System.Drawing;
 using System.Windows.Forms;
-using CodebaseReviewTool.Core.Data;
-using CodebaseReviewTool.Core.Data.Enums;
-using CodebaseReviewTool.Core.Hosting;
-using CodebaseReviewTool.Core.Reviews;
+using CodebaseReviewTool.Application.Hosting;
+using CodebaseReviewTool.Application.Reviews;
+using CodebaseReviewTool.Domain.Enums;
+using CodebaseReviewTool.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CodebaseReviewTool.Host.Tray;

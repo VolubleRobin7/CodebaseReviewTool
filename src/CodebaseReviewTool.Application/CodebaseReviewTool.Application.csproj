@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Prompts\Defaults\*.txt" />
+    <EmbeddedResource Include="Reporting\Templates\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Temporary: the hosted services in Host call internal members of PollControl and RepositoryRegistry. -->
+    <InternalsVisibleTo Include="CodebaseReviewTool.Host" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodebaseReviewTool.Domain\CodebaseReviewTool.Domain.csproj" />
+    <!--
+      Temporary: the use-case code still calls the services directly. Each reference goes once those calls go through
+      interfaces defined here, and then the service projects reference Application instead.
+    -->
+    <ProjectReference Include="..\CodebaseReviewTool.Persistence\CodebaseReviewTool.Persistence.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Git\CodebaseReviewTool.Git.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.RepositoryHosts\CodebaseReviewTool.RepositoryHosts.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Agents\CodebaseReviewTool.Agents.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Infrastructure\CodebaseReviewTool.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

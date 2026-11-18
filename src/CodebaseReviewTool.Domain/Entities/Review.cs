@@ -1,0 +1,88 @@
+using CodebaseReviewTool.Domain.Enums;
+
+namespace CodebaseReviewTool.Domain.Entities;
+
+/// <summary>One review run of one pull request. All times are UTC.</summary>
+public class Review
+{
+    public int Id { get; set; }
+
+    public int PullRequestId { get; set; }
+
+    public PullRequest? PullRequest { get; set; }
+
+    public string RepositoryKey { get; set; } = string.Empty;
+
+    public string SourceCommit { get; set; } = string.Empty;
+
+    public string MergeBaseCommit { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Derived from the review's timestamps, <see cref="Error"/> and <see cref="StepRuns"/>; not stored. Load
+    /// <see cref="StepRuns"/> before reading it, or a failed step is reported as running.
+    /// </summary>
+    public ReviewState State
+    {
+        get
+        {
+            if (Error is not null || StepRuns.Any(s => s.State == StepRunState.Failed))
+            {
+                return ReviewState.Failed;
+            }
+
+            if (CancelledAt is not null)
+            {
+                return ReviewState.Cancelled;
+            }
+
+            if (CompletedAt is not null)
+            {
+                return ReviewState.Completed;
+            }
+
+            if (StartedAt is null)
+            {
+                return ReviewState.Queued;
+            }
+
+            return string.IsNullOrEmpty(WorktreePath) ? ReviewState.PreparingWorktree : ReviewState.Running;
+        }
+    }
+
+    /// <summary>
+    /// True when commits have been pushed to <paramref name="pullRequest"/> since this review's commit, i.e. the cached
+    /// head commit (which the poller keeps current) differs from the one reviewed. False when either is unknown.
+    /// </summary>
+    public bool IsOutOfDate(PullRequest pullRequest)
+    {
+        ArgumentNullException.ThrowIfNull(pullRequest);
+        return !string.IsNullOrEmpty(SourceCommit)
+            && !string.IsNullOrEmpty(pullRequest.SourceCommit)
+            && !string.Equals(SourceCommit, pullRequest.SourceCommit, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The step currently running, or null when no step is in flight. Needs <see cref="StepRuns"/> loaded.</summary>
+    public int? CurrentStep => StepRuns.FirstOrDefault(s => s.State == StepRunState.Running)?.Step;
+
+    public string WorktreePath { get; set; } = string.Empty;
+
+    public DateTime? WorktreeRemovedAt { get; set; }
+
+    public DateTime QueuedAt { get; set; }
+
+    public DateTime? StartedAt { get; set; }
+
+    public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// When the user cancelled the review; <see cref="CompletedAt"/> is set too, so code asking whether a review is
+    /// unfinished (no completion time, no error) treats a cancelled one as finished.
+    /// </summary>
+    public DateTime? CancelledAt { get; set; }
+
+    public string? Error { get; set; }
+
+    public List<ReviewStepRun> StepRuns { get; set; } = [];
+
+    public List<Issue> Issues { get; set; } = [];
+}

@@ -112,9 +112,9 @@ done
 
 ### What it sends, and what it costs
 
-- **Azure DevOps** is only ever read: the tool lists pull requests and their metadata. It never
-  comments, votes or changes anything. The personal access token is stored in plain text in
-  `appsettings.json`, so keep that folder private.
+- **Azure DevOps** is read for pull requests and their metadata. The only thing the tool writes is
+  a comment thread for each issue you choose to post; it never votes or changes anything else. The
+  personal access token is stored in plain text in `appsettings.json`, so keep that folder private.
 - **The code under review** is read by Claude Code from the worktree, which means it is sent to
   Anthropic under your own Claude Code account, the same as running `claude` in that folder
   yourself. The tool allowlist limits each run to reading files and running read-only git commands.
@@ -253,7 +253,49 @@ runs `CodebaseReviewTool.Host.exe`. They need the .NET 10 Desktop and ASP.NET Co
 (the exe says which are missing), git, a signed-in Claude Code CLI and local clones of the
 repositories. When unzipping an update, keep the existing `appsettings.json`.
 
-## Design
+### Project layout
 
-See [docs/implementation-plan.md](docs/implementation-plan.md) for the architecture,
-configuration shape, data model and phased build plan.
+The solution is being moved to a layered design: the UI and API call use cases, and the use cases
+reach AI tools, repository remotes, git and the database only through interfaces, so another AI
+or remote can be added beside the existing one. The projects are split; project references marked
+"Temporary" in the csproj files are what is still to be untangled. In Solution Explorer the
+projects are grouped by layer; on disk they all sit directly under `src\`.
+
+| Project | Solution folder | Holds |
+|---|---|---|
+| Host | Presentation | The exe: startup, the tray icon, and the hosted services (pull request poller, review queue, worktree cleanup, startup initializer). |
+| Web | Presentation | The Blazor pages, components and static files (a Razor class library). |
+| Api | Presentation | The HTTP API endpoints. |
+| Application | Application | Review orchestration and queue, prompts, reporting and the repository registry. |
+| Domain | Application | Entities and enums. References nothing. |
+| Agents | Services | AI tools behind `IAgentRunner`; Claude Code today. |
+| Git | Services | git commands and the review worktrees. |
+| RepositoryHosts | Services | Repository remotes; Azure DevOps today. |
+| Persistence | Services | The EF Core SQLite context and its migrations. |
+| Infrastructure | Services | Shared by the service projects: the process runner and the options helpers (placeholder check, path expansion). |
+
+### Database migrations
+
+Migrations live in Persistence, which has its own design-time context factory, so adding one never
+starts the app:
+
+```
+dotnet ef migrations add <Name> --project src/CodebaseReviewTool.Persistence --startup-project src/CodebaseReviewTool.Persistence --output-dir Migrations
+```
+
+The app applies pending migrations at startup.
+
+## Possible future work
+
+Ideas not yet picked up, roughly in order of value:
+
+- Live step progress on the report page, using the CLI's `--output-format stream-json`.
+- Comparing two reviews of the same pull request (issues added and resolved between iterations).
+- Shared context between steps. Each step is a fresh agent session by design. If taken, prefer
+  exposing earlier outputs as placeholders such as `{{STEP_OUTPUT:n}}` over resuming the previous
+  step's session, which anchors a later model on an earlier one's answer and loses the
+  model-scoped prompt cache.
+- Running steps in parallel. They share only the read-only worktree, so only the orchestrator's
+  loop keeps them sequential; running them together drops stop-on-first-failure and "step N of M",
+  and with placeholders a step would have to wait for the steps whose output it quotes.
+- Opt-in automatic reviews of new pull request iterations.

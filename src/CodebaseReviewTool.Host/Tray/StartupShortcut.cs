@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using CodebaseReviewTool.Application.Configuration;
 
 namespace CodebaseReviewTool.Host.Tray;
 
@@ -8,7 +9,7 @@ namespace CodebaseReviewTool.Host.Tray;
 /// The "run at login" setting: a shortcut to this exe in the user's Startup folder. No registry and no admin rights;
 /// the shortcut's existence is the setting.
 /// </summary>
-public sealed class StartupShortcut
+public sealed class StartupShortcut : IStartupShortcut
 {
     private const string ShortcutFileName = "Codebase Review Tool.lnk";
 

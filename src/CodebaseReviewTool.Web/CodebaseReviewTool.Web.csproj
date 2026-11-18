@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The implicit usings of the Web SDK, which these components had when they were part of Host. -->
+    <Using Include="System.Net.Http.Json" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodebaseReviewTool.Application\CodebaseReviewTool.Application.csproj" />
+    <!--
+      Temporary: pages and components use these directly (entities, the DbContext factory, git, the DevOps client,
+      Claude's options and the process runner on the Configuration page). Each goes once its page calls use cases.
+    -->
+    <ProjectReference Include="..\CodebaseReviewTool.Domain\CodebaseReviewTool.Domain.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Persistence\CodebaseReviewTool.Persistence.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Git\CodebaseReviewTool.Git.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.RepositoryHosts\CodebaseReviewTool.RepositoryHosts.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Agents\CodebaseReviewTool.Agents.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Infrastructure\CodebaseReviewTool.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

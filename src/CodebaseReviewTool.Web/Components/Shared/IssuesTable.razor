@@ -1,0 +1,265 @@
+@using CodebaseReviewTool.Application.Reporting
+@using CodebaseReviewTool.Domain.Entities
+@using CodebaseReviewTool.Domain.Enums
+
+<div class="section-head">
+    <h2 class="section-title">@Title</h2>
+
+    @if (Issues.Count > 0)
+    {
+        <div class="pills">
+            <button @onclick="() => _filter = null"
+                    aria-pressed="@(_filter is null ? "true" : "false")"
+                    class="@PillClass(null)"
+                    type="button">
+
+                All @Issues.Count
+
+            </button>
+
+            @foreach (var severity in ReportFormat.Severities)
+            {
+                <button @onclick="() => _filter = severity"
+                        aria-pressed="@(_filter == severity ? "true" : "false")"
+                        class="@PillClass(severity)"
+                        type="button">
+
+                    @severity @(Issues.Count(i => i.Severity == severity))
+
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@if (Issues.Count == 0)
+{
+    <p class="empty">No issues found.</p>
+}
+else
+{
+    <div class="rows">
+        <div class="row-head issue-row">
+            <span class="issue-select">
+                <input @onchange="ToggleAllShown"
+                       aria-label="Select every issue shown that has not been posted"
+                       checked="@AllShownSelected"
+                       disabled="@(!CanPost || !SelectableShown.Any())"
+                       type="checkbox" />
+            </span>
+            <span>Severity</span>
+            <span>Description</span>
+            <span>Suggested fix</span>
+        </div>
+
+        @foreach (var issue in Shown)
+        {
+            <div @key="issue.Id"
+                 class="row issue-row">
+
+                <span class="issue-select">
+                    <input @onchange="e => Toggle(issue.Id, e)"
+                           aria-label="@SelectLabel(issue)"
+                           checked="@_selected.Contains(issue.Id)"
+                           disabled="@(!CanPost || IsPosted(issue))"
+                           title="@(IsPosted(issue) ? "Already posted to the pull request" : null)"
+                           type="checkbox" />
+                </span>
+
+                <div class="issue-severity">
+                    <SeverityBadge Severity="issue.Severity" />
+                    @if (!string.IsNullOrWhiteSpace(issue.Category))
+                    {
+                        <span class="issue-category">@issue.Category</span>
+                    }
+                    @if (issue.PostedAt is { } postedAt)
+                    {
+                        @if (ThreadUrl(issue) is { } threadUrl)
+                        {
+                            <a class="tag issue-posted"
+                               href="@threadUrl"
+                               rel="noopener noreferrer"
+                               target="_blank"
+                               title="Posted to the pull request on @ReportFormat.Timestamp(postedAt)">
+
+                                Posted &#x2197;
+
+                            </a>
+                        }
+                        else
+                        {
+                            <span class="tag issue-posted"
+                                  title="Posted to the pull request on @ReportFormat.Timestamp(postedAt)">
+
+                                Posted
+
+                            </span>
+                        }
+                    }
+                </div>
+
+                <div class="issue-text">
+                    @if (!string.IsNullOrWhiteSpace(issue.Title))
+                    {
+                        <span class="issue-title">@issue.Title</span>
+                    }
+                    <span class="issue-description">@issue.Description</span>
+                    @if (!string.IsNullOrWhiteSpace(issue.File))
+                    {
+                        <span class="issue-location">@ReportFormat.Location(issue)</span>
+                    }
+                </div>
+
+                <span class="issue-fix">@(issue.Suggestion ?? "None suggested.")</span>
+
+            </div>
+        }
+
+        @if (!Shown.Any())
+        {
+            <p class="empty">No issues at this severity.</p>
+        }
+    </div>
+
+    <div class="issues-post">
+        <div class="issues-post-text">
+            @if (!string.IsNullOrEmpty(PostStatus))
+            {
+                <p class="@(PostStatusIsError ? "issues-post-status error" : "issues-post-status")"
+                   role="status">
+
+                    @PostStatus
+
+                </p>
+            }
+
+            <p class="issues-post-note">@SelectionText</p>
+        </div>
+
+        <button @onclick="PostAsync"
+                class="btn btn-primary"
+                disabled="@(!CanPost || _selected.Count == 0)"
+                type="button">
+
+            @PostButtonText
+
+        </button>
+    </div>
+}
+
+@code {
+    private readonly HashSet<int> _selected = [];
+    private IssueSeverity? _filter;
+
+    /// <summary>The section heading, shown beside the filter pills.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>The review's issues, in the order they are listed.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<Issue> Issues { get; set; } = [];
+
+    /// <summary>False while the review is in flight or issues are being posted; the tickboxes and button are disabled.</summary>
+    [Parameter]
+    public bool CanPost { get; set; }
+
+    /// <summary>True while a post is in progress, which the button says.</summary>
+    [Parameter]
+    public bool Posting { get; set; }
+
+    /// <summary>The pull request's page in DevOps, which a posted issue's marker links to; null when unknown.</summary>
+    [Parameter]
+    public string? PullRequestUrl { get; set; }
+
+    /// <summary>The outcome of the last post, shown beside the button; null for none.</summary>
+    [Parameter]
+    public string? PostStatus { get; set; }
+
+    /// <summary>True when <see cref="PostStatus"/> reports a failure.</summary>
+    [Parameter]
+    public bool PostStatusIsError { get; set; }
+
+    /// <summary>Raised by the post button with the ids of the ticked issues, in report order.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<int>> OnPost { get; set; }
+
+    private IEnumerable<Issue> Shown => _filter is { } severity ? Issues.Where(i => i.Severity == severity) : Issues;
+
+    private IEnumerable<Issue> SelectableShown => Shown.Where(i => !IsPosted(i));
+
+    private bool AllShownSelected => SelectableShown.Any() && SelectableShown.All(i => _selected.Contains(i.Id));
+
+    private string PostButtonText => (Posting, _selected.Count) switch
+    {
+        (true, _) => "Posting…",
+        (_, 0) => "Post to pull request",
+        (_, 1) => "Post 1 issue to pull request",
+        (_, var count) => $"Post {count} issues to pull request",
+    };
+
+    private string SelectionText
+    {
+        get
+        {
+            var unposted = Issues.Count(i => !IsPosted(i));
+            if (unposted == 0)
+            {
+                return "Every issue has been posted to the pull request.";
+            }
+
+            if (_selected.Count == 0)
+            {
+                return "Tick the issues to post to the pull request; each becomes its own comment.";
+            }
+
+            var hidden = _selected.Count(id => !Shown.Any(i => i.Id == id));
+            var text = $"{_selected.Count} of {unposted} selected";
+            return hidden > 0 ? $"{text} ({hidden} hidden by the filter)." : $"{text}.";
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Issues posted since (by this page or another tab) or gone after a re-run can no longer be selected.
+        _selected.IntersectWith(Issues.Where(i => !IsPosted(i)).Select(i => i.Id));
+    }
+
+    private static bool IsPosted(Issue issue) => issue.PostedAt is not null;
+
+    private void Toggle(int id, ChangeEventArgs e)
+    {
+        if (e.Value is true)
+        {
+            _selected.Add(id);
+        }
+        else
+        {
+            _selected.Remove(id);
+        }
+    }
+
+    private void ToggleAllShown(ChangeEventArgs e)
+    {
+        foreach (var issue in SelectableShown)
+        {
+            Toggle(issue.Id, e);
+        }
+    }
+
+    private Task PostAsync()
+    {
+        // In report order, whatever order they were ticked in.
+        IReadOnlyList<int> ids = [.. Issues.Where(i => _selected.Contains(i.Id)).Select(i => i.Id)];
+        return OnPost.InvokeAsync(ids);
+    }
+
+    private string? ThreadUrl(Issue issue) => !string.IsNullOrEmpty(PullRequestUrl) && issue.PostedThreadId is { } threadId
+        ? $"{PullRequestUrl}?discussionId={threadId}"
+        : null;
+
+    private static string SelectLabel(Issue issue) => string.IsNullOrWhiteSpace(issue.Title)
+        ? "Select this issue to post"
+        : $"Select to post: {issue.Title}";
+
+    private string PillClass(IssueSeverity? severity) => severity == _filter ? "pill active" : "pill";
+}

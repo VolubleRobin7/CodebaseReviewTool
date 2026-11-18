@@ -11,6 +11,11 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
     <!-- Never hosted in IIS, so publishing writes no web.config. -->
     <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+    <!--
+      The Web SDK only references the package holding blazor.web.js when the project has .razor files of its own.
+      The components are in Web, so ask for it here, where the script is served from.
+    -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,7 +35,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CodebaseReviewTool.Core\CodebaseReviewTool.Core.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Web\CodebaseReviewTool.Web.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Api\CodebaseReviewTool.Api.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Application\CodebaseReviewTool.Application.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Agents\CodebaseReviewTool.Agents.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Git\CodebaseReviewTool.Git.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.RepositoryHosts\CodebaseReviewTool.RepositoryHosts.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Persistence\CodebaseReviewTool.Persistence.csproj" />
+    <!-- Temporary: the hosted services and the tray read entities and enums directly. -->
+    <ProjectReference Include="..\CodebaseReviewTool.Domain\CodebaseReviewTool.Domain.csproj" />
   </ItemGroup>
 
   <!--
