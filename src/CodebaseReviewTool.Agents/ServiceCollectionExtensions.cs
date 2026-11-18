@@ -1,4 +1,5 @@
 using CodebaseReviewTool.Agents.Claude;
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Infrastructure.Configuration;
 using CodebaseReviewTool.Infrastructure.Processes;
 using Microsoft.Extensions.Configuration;
@@ -10,7 +11,9 @@ namespace CodebaseReviewTool.Agents;
 
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registers the Claude options and the <see cref="IAgentRunner"/> that runs each flow step.</summary>
+    /// <summary>
+    /// Registers the Claude options and the <see cref="IAgentRunner"/> that runs each flow step and reads the plan's usage.
+    /// </summary>
     public static IServiceCollection AddAgents(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);

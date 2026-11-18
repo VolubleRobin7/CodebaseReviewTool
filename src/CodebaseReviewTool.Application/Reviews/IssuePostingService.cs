@@ -1,10 +1,9 @@
 using System.Text;
+using CodebaseReviewTool.Application.Common.Interfaces;
+using CodebaseReviewTool.Application.Common.Models;
 using CodebaseReviewTool.Application.Reporting;
 using CodebaseReviewTool.Application.Repositories;
 using CodebaseReviewTool.Domain.Entities;
-using CodebaseReviewTool.Persistence;
-using CodebaseReviewTool.RepositoryHosts.AzureDevOps;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -24,13 +23,13 @@ public sealed record IssuePostResult(int Requested, int Posted, string? Error)
 /// line where it has them. Each posted issue records its thread, so it is never posted twice.
 /// </summary>
 public sealed class IssuePostingService(
-    IDbContextFactory<ReviewDbContext> dbContextFactory,
+    IReviewDbContextFactory dbContextFactory,
     IServiceScopeFactory scopeFactory,
     IRepositoryRegistry registry,
     ReviewEvents events,
     ILogger<IssuePostingService> logger) : IDisposable
 {
-    private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
+    private readonly IReviewDbContextFactory _dbContextFactory = dbContextFactory;
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly IRepositoryRegistry _registry = registry;
     private readonly ReviewEvents _events = events;
@@ -53,11 +52,9 @@ public sealed class IssuePostingService(
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            await using var db = _dbContextFactory.CreateDbContext();
 
-            var review = await db.Reviews
-                .Include(r => r.PullRequest)
-                .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken)
+            var review = db.GetEntities<Review>().FirstOrDefault(r => r.Id == reviewId)
                 ?? throw new InvalidOperationException($"Review {reviewId} no longer exists.");
 
             var repository = _registry.Find(review.RepositoryKey)
@@ -65,9 +62,9 @@ public sealed class IssuePostingService(
                     $"The repository '{review.RepositoryKey}' is no longer configured, so its pull request cannot be found.");
 
             var ids = issueIds.ToHashSet();
-            var issues = await db.Issues
+            var issues = db.GetEntities<Issue>()
                 .Where(i => i.ReviewId == reviewId && ids.Contains(i.Id) && i.PostedAt == null)
-                .ToListAsync(cancellationToken);
+                .ToList();
 
             // The same order as the report, so the threads read in that order on the pull request.
             issues = [.. issues
@@ -82,14 +79,14 @@ public sealed class IssuePostingService(
             }
 
             using var scope = _scopeFactory.CreateScope();
-            var client = scope.ServiceProvider.GetRequiredService<IDevOpsClient>();
+            var host = scope.ServiceProvider.GetRequiredService<IRepositoryHost>();
 
             var posted = 0;
             string? error = null;
             foreach (var issue in issues)
             {
-                var thread = new DevOpsNewThread(CommentText(issue, review.SourceCommit), issue.File, issue.Line);
-                var result = await client.CreatePullRequestThreadAsync(repository, review.PullRequestId, thread, cancellationToken);
+                var thread = new NewCommentThread(CommentText(issue, review.SourceCommit), issue.File, issue.Line);
+                var result = await host.CreateCommentThreadAsync(repository, review.PullRequestId, thread, cancellationToken);
                 if (!result.Succeeded)
                 {
                     error = result.Error;
@@ -98,7 +95,7 @@ public sealed class IssuePostingService(
                     break;
                 }
 
-                // Saved one at a time, so an issue that reached DevOps is recorded even if a later one fails.
+                // Saved one at a time, so an issue that reached the host is recorded even if a later one fails.
                 issue.PostedAt = DateTime.UtcNow;
                 issue.PostedThreadId = result.Value!.Id;
                 await db.SaveChangesAsync(CancellationToken.None);

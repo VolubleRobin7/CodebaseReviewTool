@@ -49,7 +49,7 @@ public interface IPollControl
 }
 
 /// <summary>
-/// The poller's shared state. <c>DevOpsPollService</c> (in Host) writes the status through the internal methods and waits
+/// The poller's shared state. The pull request poller (in Host) writes the status through the internal methods and waits
 /// here between polls, waking early when one is requested; everything else sees it as <see cref="IPollControl"/>.
 /// </summary>
 public sealed class PollControl : IPollControl, IDisposable

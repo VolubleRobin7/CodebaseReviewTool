@@ -1,7 +1,6 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Domain.Entities;
 using CodebaseReviewTool.Domain.Enums;
-using CodebaseReviewTool.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 namespace CodebaseReviewTool.Application.Reviews;
 
@@ -9,7 +8,7 @@ namespace CodebaseReviewTool.Application.Reviews;
 public sealed record ReviewStepStatus(int Step, StepRunState State, DateTime? StartedAt, DateTime? CompletedAt, long? DurationMs);
 
 /// <summary>A review's state as read at one moment, without the step runs' prompts and output.</summary>
-/// <param name="Review">The review row, untracked; its <see cref="Review.PullRequest"/> is loaded and its
+/// <param name="Review">The review row; its <see cref="Review.PullRequest"/> is loaded and its
 /// <see cref="Review.StepRuns"/> hold only the columns <see cref="Review.State"/> needs.</param>
 /// <param name="Steps">The review's step runs in step order.</param>
 /// <param name="IssueCounts">Issues found, by severity; only severities with at least one issue appear.</param>
@@ -22,27 +21,30 @@ public sealed record ReviewStatus(Review Review, IReadOnlyList<ReviewStepStatus>
 }
 
 /// <summary>Reads a review's status for callers outside the UI (the HTTP API).</summary>
-public sealed class ReviewStatusReader(IDbContextFactory<ReviewDbContext> dbContextFactory)
+public sealed class ReviewStatusReader(IReviewDbContextFactory dbContextFactory)
 {
-    private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
+    private readonly IReviewDbContextFactory _dbContextFactory = dbContextFactory;
 
     /// <summary>The review's current status, or null when there is no such review.</summary>
     public async Task<ReviewStatus?> GetStatusAsync(int reviewId, CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        await using var db = _dbContextFactory.CreateDbContext();
 
-        var review = await db.Reviews
-            .AsNoTracking()
-            .Include(r => r.PullRequest)
-            .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken);
-        if (review is null)
+        var row = db.GetEntities<Review>()
+            .Where(r => r.Id == reviewId)
+            .Select(r => new { Review = r, r.PullRequest })
+            .FirstOrDefault();
+        if (row is null)
         {
             return null;
         }
 
+        var review = row.Review;
+        review.PullRequest = row.PullRequest;
+
         // Only the columns the derived states need; a step run's prompt and raw output can be large.
-        review.StepRuns = await db.ReviewStepRuns
-            .AsNoTracking()
+        review.StepRuns = db.GetEntities<ReviewStepRun>()
             .Where(s => s.ReviewId == reviewId)
             .OrderBy(s => s.Step)
             .Select(s => new ReviewStepRun
@@ -55,13 +57,13 @@ public sealed class ReviewStatusReader(IDbContextFactory<ReviewDbContext> dbCont
                 Error = s.Error,
                 DurationMs = s.DurationMs,
             })
-            .ToListAsync(cancellationToken);
+            .ToList();
 
-        var counts = await db.Issues
+        var counts = db.GetEntities<Issue>()
             .Where(i => i.ReviewId == reviewId)
             .GroupBy(i => i.Severity)
             .Select(g => new { Severity = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(g => g.Severity, g => g.Count, cancellationToken);
+            .ToDictionary(g => g.Severity, g => g.Count);
 
         var steps = review.StepRuns
             .Select(s => new ReviewStepStatus(s.Step, s.State, s.StartedAt, s.CompletedAt, s.DurationMs))

@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.RepositoryHosts.AzureDevOps;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,7 +8,11 @@ namespace CodebaseReviewTool.RepositoryHosts;
 
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registers the DevOps options and the DevOps HttpClient.</summary>
+    /// <summary>
+    /// Registers the DevOps options, the DevOps HttpClient and <see cref="AzureDevOpsRepositoryHost"/> as the
+    /// <see cref="IRepositoryHost"/> Application uses. The host is transient like the typed client it wraps, so callers
+    /// that live long resolve it per use from a scope.
+    /// </summary>
     public static IServiceCollection AddRepositoryHosts(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -28,6 +33,8 @@ public static class ServiceCollectionExtensions
                 // On-prem Windows auth (NTLM/Kerberos) with the signed-in account instead of a PAT.
                 UseDefaultCredentials = sp.GetRequiredService<IOptions<DevOpsOptions>>().Value.UseDefaultCredentials,
             });
+
+        services.AddTransient<IRepositoryHost, AzureDevOpsRepositoryHost>();
 
         return services;
     }

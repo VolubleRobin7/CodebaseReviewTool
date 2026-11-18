@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -5,10 +6,10 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CodebaseReviewTool.Persistence;
 
 /// <summary>
-/// SQLite storage for the tool. Consumers inject <see cref="IDbContextFactory{TContext}"/> and create a short-lived
-/// context per operation; Blazor Server circuits and background services must not share one.
+/// SQLite storage for the tool. Application reaches it as <see cref="IReviewDbContext"/>, created per operation by
+/// <see cref="IReviewDbContextFactory"/>; the table mappings are the <c>Configurations</c> classes.
 /// </summary>
-public class ReviewDbContext(DbContextOptions<ReviewDbContext> options) : DbContext(options)
+public class ReviewDbContext(DbContextOptions<ReviewDbContext> options) : DbContext(options), IReviewDbContext
 {
     public DbSet<FlowStep> FlowSteps => Set<FlowStep>();
 
@@ -20,6 +21,14 @@ public class ReviewDbContext(DbContextOptions<ReviewDbContext> options) : DbCont
 
     public DbSet<Issue> Issues => Set<Issue>();
 
+    void IReviewDbContext.Add<TEntity>(TEntity entity) => Set<TEntity>().Add(entity);
+
+    IQueryable<TEntity> IReviewDbContext.GetEntities<TEntity>() => Set<TEntity>();
+
+    void IReviewDbContext.Remove<TEntity>(TEntity entity) => Set<TEntity>().Remove(entity);
+
+    Task IReviewDbContext.SaveChangesAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // Enums use EF's default integer storage. Every DateTime is UTC and comes back with Kind = Utc.
@@ -27,59 +36,13 @@ public class ReviewDbContext(DbContextOptions<ReviewDbContext> options) : DbCont
         configurationBuilder.Properties<DateTime?>().HaveConversion<UtcDateTimeConverter>();
     }
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<FlowStep>(entity =>
-        {
-            entity.ToTable("FlowSteps");
-            entity.HasKey(e => e.Step);
-            entity.Property(e => e.Step).ValueGeneratedNever();
-            entity.Property(e => e.Name).HasMaxLength(100);
-        });
+    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ReviewDbContext).Assembly);
 
-        modelBuilder.Entity<PullRequest>(entity =>
-        {
-            entity.ToTable("PullRequests");
-            entity.HasKey(e => new { e.Id, e.RepositoryKey });
-            entity.Property(e => e.Id).ValueGeneratedNever();
-            // The poller marks a repository's open rows closed; the home page lists open rows.
-            entity.HasIndex(e => new { e.RepositoryKey, e.IsOpen });
-        });
-
-        modelBuilder.Entity<Review>(entity =>
-        {
-            entity.ToTable("Reviews");
-            entity.Ignore(e => e.State);
-            entity.Ignore(e => e.CurrentStep);
-            // Reviews outlive their PR's open state; PR rows are never deleted while reviews exist. The foreign key
-            // gets its own (PullRequestId, RepositoryKey) index by convention.
-            entity.HasOne(e => e.PullRequest)
-                .WithMany(p => p.Reviews)
-                .HasForeignKey(e => new { e.PullRequestId, e.RepositoryKey })
-                .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        modelBuilder.Entity<ReviewStepRun>(entity =>
-        {
-            entity.ToTable("ReviewStepRuns");
-            entity.Ignore(e => e.State);
-            entity.HasIndex(e => e.ReviewId);
-            entity.HasOne(e => e.Review)
-                .WithMany(r => r.StepRuns)
-                .HasForeignKey(e => e.ReviewId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<Issue>(entity =>
-        {
-            entity.ToTable("Issues");
-            entity.HasIndex(e => e.ReviewId);
-            entity.HasOne(e => e.Review)
-                .WithMany(r => r.Issues)
-                .HasForeignKey(e => e.ReviewId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-    }
+    // Create a migration (from the repository root):
+    // dotnet ef migrations add <Name> --project src/CodebaseReviewTool.Persistence --startup-project src/CodebaseReviewTool.Persistence --output-dir Migrations
+    //
+    // Pending migrations are applied when the app starts (StartupInitializer in Host).
 
     internal sealed class UtcDateTimeConverter() : ValueConverter<DateTime, DateTime>(
         value => value.Kind == DateTimeKind.Local ? value.ToUniversalTime() : DateTime.SpecifyKind(value, DateTimeKind.Utc),

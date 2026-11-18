@@ -1,43 +1,40 @@
 using System.Text;
+using CodebaseReviewTool.Application.Common.Interfaces;
+using CodebaseReviewTool.Application.Common.Models;
 using CodebaseReviewTool.Application.Configuration;
-using CodebaseReviewTool.Git;
-using CodebaseReviewTool.RepositoryHosts.AzureDevOps;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CodebaseReviewTool.Application.Repositories;
 
 /// <summary>
-/// Turns each configured <c>Repositories[n]</c> entry into a <see cref="ResolvedRepository"/> by reading the clone's
-/// remote and parsing its URL for the organisation, project and repository names.
+/// Turns each configured clone into a <see cref="ResolvedRepository"/>: source control reads the clone's remote, and
+/// the repository host works out which of its repositories that remote is.
 /// </summary>
-public sealed class RepositoryResolver(GitRunner gitRunner, IOptions<RepositoriesOptions> repositories, IOptions<DevOpsOptions> devOps)
+public sealed class RepositoryResolver(ISourceControl sourceControl, IServiceScopeFactory scopeFactory)
 {
-    private readonly GitRunner _gitRunner = gitRunner;
-    private readonly RepositoriesOptions _repositories = repositories.Value;
-    private readonly DevOpsOptions _devOps = devOps.Value;
+    private readonly ISourceControl _sourceControl = sourceControl;
+    private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
 
     /// <summary>Resolves every repository, or throws <see cref="StartupValidationException"/> listing every failure.</summary>
     public async Task<IReadOnlyList<ResolvedRepository>> ResolveAllAsync(CancellationToken cancellationToken)
     {
-        var failures = new List<string>();
+        // The host is transient (it wraps a typed HttpClient), so it is resolved for this one run.
+        using var scope = _scopeFactory.CreateScope();
+        var host = scope.ServiceProvider.GetRequiredService<IRepositoryHost>();
+
+        var failures = new List<string>(host.ValidateConfiguration());
         var resolved = new List<ResolvedRepository>();
 
-        var configuredOrganization = _devOps.OrganizationName;
-        if (configuredOrganization is null)
+        foreach (var clone in _sourceControl.ConfiguredClones)
         {
-            failures.Add($"DevOps:OrganizationUrl: cannot read an organisation from '{_devOps.OrganizationUrl}'.");
-        }
-
-        for (var i = 0; i < _repositories.Items.Count; i++)
-        {
-            var result = await ResolveAsync(i, _repositories.Items[i], configuredOrganization, cancellationToken);
-            if (result.Repository is not null)
+            var result = await ResolveAsync(clone, host, cancellationToken);
+            if (result.Succeeded)
             {
-                resolved.Add(result.Repository);
+                resolved.Add(result.Value!);
             }
             else
             {
-                failures.Add(result.Failure!);
+                failures.Add(result.Error!);
             }
         }
 
@@ -56,91 +53,29 @@ public sealed class RepositoryResolver(GitRunner gitRunner, IOptions<Repositorie
         return resolved;
     }
 
-    private async Task<(ResolvedRepository? Repository, string? Failure)> ResolveAsync(
-        int index,
-        RepositoryOptions options,
-        string? configuredOrganization,
-        CancellationToken cancellationToken)
+    private async Task<ServiceResult<ResolvedRepository>> ResolveAsync(ConfiguredClone clone, IRepositoryHost host, CancellationToken cancellationToken)
     {
-        var prefix = $"Repositories:{index} ('{options.DisplayName}')";
-
-        var key = Slug(options.DisplayName);
+        var key = Slug(clone.DisplayName);
         if (key.Length == 0)
         {
-            return (null, $"{prefix}: DisplayName must contain at least one letter or digit.");
+            return ServiceResult<ResolvedRepository>.Failure($"{clone.Description}: DisplayName must contain at least one letter or digit.");
         }
 
-        var remotes = await _gitRunner.RunAsync(options.LocalPath, ["remote"], cancellationToken: cancellationToken);
-        if (!remotes.Succeeded)
+        var remote = await _sourceControl.ReadRemoteAsync(clone, cancellationToken);
+        if (!remote.Succeeded)
         {
-            return (null, $"{prefix}: '{options.LocalPath}' is not a git repository ({FirstLine(remotes.StandardError)}).");
+            return ServiceResult<ResolvedRepository>.Failure(remote.Error!);
         }
 
-        var remoteNames = remotes.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        string remoteName;
-        if (!string.IsNullOrWhiteSpace(options.Remote))
+        var identity = host.IdentifyRepository(remote.Value!);
+        if (!identity.Succeeded)
         {
-            if (!remoteNames.Contains(options.Remote, StringComparer.Ordinal))
-            {
-                return (null, $"{prefix}: Remote '{options.Remote}' does not exist in '{options.LocalPath}' (remotes: {Describe(remoteNames)}).");
-            }
-
-            remoteName = options.Remote;
-        }
-        else if (remoteNames.Contains("origin", StringComparer.Ordinal))
-        {
-            remoteName = "origin";
-        }
-        else if (remoteNames.Length == 1)
-        {
-            remoteName = remoteNames[0];
-        }
-        else
-        {
-            return (null, $"{prefix}: cannot choose a remote in '{options.LocalPath}' (remotes: {Describe(remoteNames)}); set Repositories:{index}:Remote.");
+            return ServiceResult<ResolvedRepository>.Failure(identity.Error!);
         }
 
-        var urlResult = await _gitRunner.RunAsync(options.LocalPath, ["remote", "get-url", remoteName], cancellationToken: cancellationToken);
-        if (!urlResult.Succeeded)
-        {
-            return (null, $"{prefix}: cannot read the URL of remote '{remoteName}' ({FirstLine(urlResult.StandardError)}).");
-        }
-
-        // Redacted so a token embedded in an https remote never reaches the UI or a startup message.
-        var remoteUrl = AzureDevOpsUrl.RedactCredentials(urlResult.StandardOutput.Trim());
-        var hasOverrides = !string.IsNullOrWhiteSpace(options.Project) && !string.IsNullOrWhiteSpace(options.Repository);
-
-        string organization;
-        string project;
-        string repository;
-        if (AzureDevOpsUrl.TryParseRemoteUrl(remoteUrl, _devOps.OrganizationUrl, out var parts))
-        {
-            organization = parts.Organization;
-            project = string.IsNullOrWhiteSpace(options.Project) ? parts.Project : options.Project;
-            repository = string.IsNullOrWhiteSpace(options.Repository) ? parts.Repository : options.Repository;
-        }
-        else if (hasOverrides && configuredOrganization is not null)
-        {
-            organization = configuredOrganization;
-            project = options.Project!;
-            repository = options.Repository!;
-        }
-        else
-        {
-            return (null,
-                $"{prefix}: the URL of remote '{remoteName}' ('{remoteUrl}') is not a recognised Azure DevOps URL; " +
-                $"set Repositories:{index}:Project and Repositories:{index}:Repository.");
-        }
-
-        if (configuredOrganization is not null && !organization.Equals(configuredOrganization, StringComparison.OrdinalIgnoreCase))
-        {
-            return (null,
-                $"{prefix}: remote '{remoteName}' belongs to organisation '{organization}' but DevOps:OrganizationUrl names " +
-                $"organisation '{configuredOrganization}'.");
-        }
-
-        return (new ResolvedRepository(options.DisplayName, key, options.LocalPath, remoteName, organization, project, repository, remoteUrl), null);
+        var (organization, project, repository) = identity.Value!;
+        return ServiceResult<ResolvedRepository>.Success(new ResolvedRepository(
+            clone.DisplayName, key, clone.LocalPath, remote.Value!.RemoteName, organization, project, repository, remote.Value.RemoteUrl));
     }
 
     /// <summary>Lowercase ASCII letters and digits; every run of anything else becomes one hyphen; trimmed of hyphens.</summary>
@@ -172,13 +107,5 @@ public sealed class RepositoryResolver(GitRunner gitRunner, IOptions<Repositorie
         }
 
         return builder.ToString();
-    }
-
-    private static string Describe(string[] remoteNames) => remoteNames.Length == 0 ? "none" : string.Join(", ", remoteNames);
-
-    private static string FirstLine(string text)
-    {
-        var line = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
-        return string.IsNullOrEmpty(line) ? "no error output" : line;
     }
 }

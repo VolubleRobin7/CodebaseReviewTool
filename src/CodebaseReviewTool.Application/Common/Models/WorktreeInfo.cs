@@ -1,11 +1,11 @@
-namespace CodebaseReviewTool.Git;
+namespace CodebaseReviewTool.Application.Common.Models;
 
 /// <summary>A worktree created for one review.</summary>
 /// <param name="Path">Full path of the worktree directory.</param>
 /// <param name="MergeBaseCommit">The merge base of the source commit and the remote-tracking target branch.</param>
 public sealed record WorktreeInfo(string Path, string MergeBaseCommit);
 
-/// <summary>One line of <c>git diff --name-status</c>.</summary>
+/// <summary>One file changed by a pull request.</summary>
 /// <param name="Status">The status letters as git prints them, e.g. <c>M</c>, <c>A</c>, <c>D</c>, <c>R100</c>.</param>
 /// <param name="Path">The file's path relative to the repository root; for a rename or copy, the new path.</param>
 public sealed record ChangedFile(string Status, string Path);
@@ -19,6 +19,3 @@ public sealed record WorktreeRemoveResult(bool Succeeded, string Detail)
 
     public static WorktreeRemoveResult Failure(string detail) => new(false, detail);
 }
-
-/// <summary>A worktree could not be prepared; the message is written for the user.</summary>
-public sealed class WorktreeException(string message) : Exception(message);

@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Implements Application's IRepositoryHost, once per host (Azure DevOps today). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
@@ -11,8 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Temporary: the DevOps client takes a ResolvedRepository, until that type moves to Application. -->
-    <ProjectReference Include="..\CodebaseReviewTool.Git\CodebaseReviewTool.Git.csproj" />
+    <ProjectReference Include="..\CodebaseReviewTool.Application\CodebaseReviewTool.Application.csproj" />
     <ProjectReference Include="..\CodebaseReviewTool.Infrastructure\CodebaseReviewTool.Infrastructure.csproj" />
   </ItemGroup>
 

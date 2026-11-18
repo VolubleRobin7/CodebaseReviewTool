@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Application.Configuration;
 using CodebaseReviewTool.Application.Data;
 using CodebaseReviewTool.Application.Repositories;
@@ -18,12 +19,14 @@ public sealed class StartupInitializer(
     RepositoryResolver resolver,
     RepositoryRegistry registry,
     IDbContextFactory<ReviewDbContext> dbContextFactory,
+    IReviewDbContextFactory reviewDbContextFactory,
     IOptions<DatabaseOptions> databaseOptions,
     ILogger<StartupInitializer> logger) : IHostedService
 {
     private readonly RepositoryResolver _resolver = resolver;
     private readonly RepositoryRegistry _registry = registry;
     private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
+    private readonly IReviewDbContextFactory _reviewDbContextFactory = reviewDbContextFactory;
     private readonly DatabaseOptions _databaseOptions = databaseOptions.Value;
     private readonly ILogger<StartupInitializer> _logger = logger;
 
@@ -45,8 +48,12 @@ public sealed class StartupInitializer(
                 repository.Key, repository.Organization, repository.Project, repository.Repository, repository.RemoteName, repository.LocalPath);
         }
 
-        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await ReviewDatabaseSeeder.MigrateAndSeedAsync(db, cancellationToken);
+        await using (var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            await db.Database.MigrateAsync(cancellationToken);
+        }
+
+        await ReviewDatabaseSeeder.SeedAsync(_reviewDbContextFactory, cancellationToken);
         _logger.LogInformation("Database ready at {Path}", _databaseOptions.Path);
     }
 

@@ -1,10 +1,7 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Application.Reviews;
 using CodebaseReviewTool.Domain.Entities;
-using CodebaseReviewTool.Git;
-using CodebaseReviewTool.Persistence;
-using CodebaseReviewTool.RepositoryHosts.AzureDevOps;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
+using CodebaseReviewTool.Application.Common.Models;
 
 namespace CodebaseReviewTool.Application.PullRequests;
 
@@ -18,12 +15,12 @@ public sealed record PullRequestMergeResult(int Added, int Updated, int Closed)
 }
 
 /// <summary>
-/// Keeps the <c>PullRequests</c> table in step with DevOps. Rows are never deleted: a pull request that stops being
+/// Keeps the <c>PullRequests</c> table in step with the repository host. Rows are never deleted: a pull request that stops being
 /// active is marked closed so its reviews keep their pull request.
 /// </summary>
-public sealed class PullRequestCache(IDbContextFactory<ReviewDbContext> dbContextFactory, ReviewEvents events)
+public sealed class PullRequestCache(IReviewDbContextFactory dbContextFactory, ReviewEvents events)
 {
-    private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
+    private readonly IReviewDbContextFactory _dbContextFactory = dbContextFactory;
     private readonly ReviewEvents _events = events;
 
     /// <summary>
@@ -33,31 +30,39 @@ public sealed class PullRequestCache(IDbContextFactory<ReviewDbContext> dbContex
     /// </summary>
     public async Task<PullRequestMergeResult> MergeAsync(
         ResolvedRepository repository,
-        IReadOnlyList<DevOpsPullRequest> active,
+        IReadOnlyList<RemotePullRequest> active,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(active);
 
-        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = _dbContextFactory.CreateDbContext();
 
-        var cached = await db.PullRequests
+        var cached = db.GetEntities<PullRequest>()
             .Where(p => p.RepositoryKey == repository.Key)
-            .ToDictionaryAsync(p => p.Id, cancellationToken);
+            .ToDictionary(p => p.Id);
 
         var now = DateTime.UtcNow;
         var activeIds = new HashSet<int>();
+        var added = 0;
+        var updated = 0;
         foreach (var source in active)
         {
-            activeIds.Add(source.PullRequestId);
-            if (!cached.TryGetValue(source.PullRequestId, out var row))
+            activeIds.Add(source.Id);
+            if (cached.TryGetValue(source.Id, out var row))
             {
-                row = new PullRequest { Id = source.PullRequestId, RepositoryKey = repository.Key };
-                db.PullRequests.Add(row);
+                if (Apply(row, source, isOpen: true, now))
+                {
+                    updated++;
+                }
             }
-
-            Apply(row, source, now);
-            row.IsOpen = true;
+            else
+            {
+                row = new PullRequest { Id = source.Id, RepositoryKey = repository.Key };
+                Apply(row, source, isOpen: true, now);
+                db.Add(row);
+                added++;
+            }
         }
 
         var closed = 0;
@@ -66,11 +71,6 @@ public sealed class PullRequestCache(IDbContextFactory<ReviewDbContext> dbContex
             row.IsOpen = false;
             closed++;
         }
-
-        db.ChangeTracker.DetectChanges();
-        var entries = db.ChangeTracker.Entries<PullRequest>().ToList();
-        var added = entries.Count(e => e.State == EntityState.Added);
-        var updated = entries.Count(e => e.State == EntityState.Modified && HasMeaningfulChange(e) && e.Entity.IsOpen);
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -86,29 +86,29 @@ public sealed class PullRequestCache(IDbContextFactory<ReviewDbContext> dbContex
     /// <summary>
     /// Upserts one pull request fetched on demand (for example by the API, which needs the current head commit rather
     /// than the one from the last poll) and returns the saved row. Unlike <see cref="MergeAsync"/> it closes nothing
-    /// else; the row is open only while DevOps reports it <c>active</c>. Raises
+    /// else; the row is open only while the host reports it active. Raises
     /// <see cref="ReviewEvents.PullRequestsChanged"/> when anything other than the last-seen time changed.
     /// </summary>
-    public async Task<PullRequest> UpsertAsync(ResolvedRepository repository, DevOpsPullRequest source, CancellationToken cancellationToken)
+    public async Task<PullRequest> UpsertAsync(ResolvedRepository repository, RemotePullRequest source, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(source);
 
-        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = _dbContextFactory.CreateDbContext();
 
-        var row = await db.PullRequests.FindAsync([source.PullRequestId, repository.Key], cancellationToken);
+        var row = db.GetEntities<PullRequest>().FirstOrDefault(p => p.Id == source.Id && p.RepositoryKey == repository.Key);
+        bool changed;
         if (row is null)
         {
-            row = new PullRequest { Id = source.PullRequestId, RepositoryKey = repository.Key };
-            db.PullRequests.Add(row);
+            row = new PullRequest { Id = source.Id, RepositoryKey = repository.Key };
+            Apply(row, source, source.IsActive, DateTime.UtcNow);
+            db.Add(row);
+            changed = true;
         }
-
-        Apply(row, source, DateTime.UtcNow);
-        row.IsOpen = IsActive(source);
-
-        db.ChangeTracker.DetectChanges();
-        var entry = db.Entry(row);
-        var changed = entry.State == EntityState.Added || (entry.State == EntityState.Modified && HasMeaningfulChange(entry));
+        else
+        {
+            changed = Apply(row, source, source.IsActive, DateTime.UtcNow);
+        }
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -120,31 +120,60 @@ public sealed class PullRequestCache(IDbContextFactory<ReviewDbContext> dbContex
         return row;
     }
 
-    /// <summary>True when DevOps reports the pull request as <c>active</c> (not completed or abandoned).</summary>
-    public static bool IsActive(DevOpsPullRequest source)
+    /// <summary>
+    /// Copies <paramref name="source"/> onto <paramref name="row"/> and returns true when anything other than the
+    /// last-seen time changed. <see cref="PullRequest.LastSeenAt"/> moves on every poll, so on its own it is not a
+    /// change worth refreshing the UI for.
+    /// </summary>
+    private static bool Apply(PullRequest row, RemotePullRequest source, bool isOpen, DateTime now)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return string.Equals(source.Status, "active", StringComparison.OrdinalIgnoreCase);
-    }
+        var before = Fields.Of(row);
 
-    private static void Apply(PullRequest row, DevOpsPullRequest source, DateTime now)
-    {
         row.Title = source.Title;
         row.Description = source.Description ?? string.Empty;
-        row.AuthorName = source.CreatedBy?.DisplayName ?? string.Empty;
+        row.AuthorName = source.AuthorName;
         row.SourceBranch = source.SourceBranch;
         row.TargetBranch = source.TargetBranch;
         // Without a merge yet there is no commit; keep the last one known rather than forget it.
-        row.SourceCommit = source.LastMergeSourceCommit?.CommitId ?? row.SourceCommit;
+        row.SourceCommit = source.SourceCommit ?? row.SourceCommit;
         row.Status = source.Status;
         row.IsDraft = source.IsDraft;
         row.MergeStatus = source.MergeStatus;
-        row.CreatedAt = source.CreationDate;
+        row.CreatedAt = source.CreatedAt;
         row.Url = source.WebUrl;
+        row.IsOpen = isOpen;
         row.LastSeenAt = now;
+
+        return Fields.Of(row) != before;
     }
 
-    // LastSeenAt moves on every poll; only the other columns count as a change worth refreshing the UI for.
-    private static bool HasMeaningfulChange(EntityEntry<PullRequest> entry) =>
-        entry.Properties.Any(p => p.IsModified && p.Metadata.Name != nameof(PullRequest.LastSeenAt));
+    /// <summary>Every column of a cached pull request except its key and <see cref="PullRequest.LastSeenAt"/>.</summary>
+    private readonly record struct Fields(
+        string Title,
+        string Description,
+        string AuthorName,
+        string SourceBranch,
+        string TargetBranch,
+        string SourceCommit,
+        string Status,
+        bool IsDraft,
+        string MergeStatus,
+        DateTime CreatedAt,
+        string Url,
+        bool IsOpen)
+    {
+        public static Fields Of(PullRequest row) => new(
+            row.Title,
+            row.Description,
+            row.AuthorName,
+            row.SourceBranch,
+            row.TargetBranch,
+            row.SourceCommit,
+            row.Status,
+            row.IsDraft,
+            row.MergeStatus,
+            row.CreatedAt,
+            row.Url,
+            row.IsOpen);
+    }
 }

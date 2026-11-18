@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CodebaseReviewTool.Application\CodebaseReviewTool.Application.csproj" />
     <ProjectReference Include="..\CodebaseReviewTool.Domain\CodebaseReviewTool.Domain.csproj" />
     <ProjectReference Include="..\CodebaseReviewTool.Infrastructure\CodebaseReviewTool.Infrastructure.csproj" />
   </ItemGroup>

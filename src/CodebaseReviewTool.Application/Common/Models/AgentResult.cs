@@ -1,4 +1,4 @@
-namespace CodebaseReviewTool.Agents;
+namespace CodebaseReviewTool.Application.Common.Models;
 
 /// <summary>Outcome of one agent run.</summary>
 /// <param name="Succeeded">True when the agent exited cleanly and reported success.</param>

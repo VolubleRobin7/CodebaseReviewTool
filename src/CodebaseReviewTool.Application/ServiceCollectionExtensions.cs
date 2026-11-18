@@ -4,6 +4,7 @@ using CodebaseReviewTool.Application.PullRequests;
 using CodebaseReviewTool.Application.Reporting;
 using CodebaseReviewTool.Application.Repositories;
 using CodebaseReviewTool.Application.Reviews;
+using CodebaseReviewTool.Application.Usage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -13,7 +14,8 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the review services and their options. The hosted services that drive them are registered by Host,
-    /// and ClaudeUsageMonitor's hosted-service registration with them, so the start order stays in one place.
+    /// so the start order stays in one place. The interfaces in <c>Common\Interfaces</c> are registered by the service
+    /// projects that implement them.
     /// </summary>
     public static IServiceCollection AddApplication(this IServiceCollection services, IConfiguration configuration)
     {
@@ -44,9 +46,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IssuePostingService>();
         services.AddSingleton<ReviewOrchestrator>();
         services.AddSingleton<ReportDataLoader>();
-
-        services.AddSingleton<ClaudeUsageMonitor>();
-        services.AddSingleton<IClaudeUsage>(sp => sp.GetRequiredService<ClaudeUsageMonitor>());
+        services.AddSingleton<AgentUsageService>();
 
         return services;
     }

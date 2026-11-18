@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CodebaseReviewTool.Application.Common.Interfaces;
+using CodebaseReviewTool.Application.Common.Models;
 using CodebaseReviewTool.Infrastructure.Processes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -9,26 +11,31 @@ namespace CodebaseReviewTool.Agents.Claude;
 
 /// <summary>
 /// Runs a step through the Claude Code CLI in print mode:
-/// <c>claude -p --output-format json --allowedTools &lt;tool&gt;... [--model m] [--max-turns n] [--json-schema s]</c>.
-/// The prompt goes through stdin because Windows limits a command line to about 32,000 characters. The CLI prints one
-/// JSON object with <c>type</c> "result", <c>is_error</c>, <c>result</c>, <c>session_id</c>, <c>total_cost_usd</c>,
-/// <c>duration_ms</c> and, with a schema, <c>structured_output</c>; every field is read defensively.
+/// <c>claude -p --output-format json --allowedTools &lt;tool&gt;... --model m --max-turns n [--json-schema s]</c>.
+/// The model and timeout come from the request, falling back to <c>Claude:DefaultModel</c> and
+/// <c>Claude:TimeoutMinutes</c>; the tools and turn limit always come from configuration. The prompt goes through stdin
+/// because Windows limits a command line to about 32,000 characters. The CLI prints one JSON object with <c>type</c>
+/// "result", <c>is_error</c>, <c>result</c>, <c>session_id</c>, <c>total_cost_usd</c>, <c>duration_ms</c> and, with a
+/// schema, <c>structured_output</c>; every field is read defensively.
 /// </summary>
 public sealed class ClaudeCodeRunner(IProcessRunner processRunner, IOptions<ClaudeOptions> options, ILogger<ClaudeCodeRunner> logger) : IAgentRunner
 {
+    private static readonly TimeSpan _usageTimeout = TimeSpan.FromMinutes(1);
+
     private readonly IProcessRunner _processRunner = processRunner;
     private readonly ClaudeOptions _options = options.Value;
     private readonly ILogger<ClaudeCodeRunner> _logger = logger;
 
-    public async Task<AgentResult> RunAsync(AgentRequest request, CancellationToken cancellationToken)
+    async Task<AgentResult> IAgentRunner.RunAsync(AgentRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        var timeout = request.Timeout ?? TimeSpan.FromMinutes(_options.TimeoutMinutes);
         var arguments = BuildArguments(request);
         var commandLine = FormatCommandLine(_options.ExecutablePath, arguments);
 
         var process = await _processRunner.RunAsync(
-            new ProcessRequest(_options.ExecutablePath, arguments, request.WorkingDirectory, request.Prompt, request.Timeout),
+            new ProcessRequest(_options.ExecutablePath, arguments, request.WorkingDirectory, request.Prompt, timeout),
             cancellationToken);
 
         var measuredMs = (long)process.Duration.TotalMilliseconds;
@@ -45,7 +52,7 @@ public sealed class ClaudeCodeRunner(IProcessRunner processRunner, IOptions<Clau
         string? error = null;
         if (process.TimedOut)
         {
-            var minutes = request.Timeout.TotalMinutes;
+            var minutes = timeout.TotalMinutes;
             var unit = minutes == 1 ? "minute" : "minutes";
             error = $"Timed out after {minutes.ToString("0.#", CultureInfo.InvariantCulture)} {unit}; the process was stopped.";
         }
@@ -91,22 +98,49 @@ public sealed class ClaudeCodeRunner(IProcessRunner processRunner, IOptions<Clau
         return result;
     }
 
-    private static List<string> BuildArguments(AgentRequest request)
+    /// <summary>
+    /// Runs <c>claude -p /usage --output-format json</c>, a local command that costs no tokens, and reads the plan
+    /// limits out of the text it prints.
+    /// </summary>
+    async Task<ServiceResult<AgentUsage>> IAgentRunner.GetUsageAsync(CancellationToken cancellationToken)
+    {
+        // An empty stdin is closed at once, so the CLI never waits on it. The working directory is irrelevant to a
+        // local command; the temp folder keeps it out of any repository's project settings.
+        var process = await _processRunner.RunAsync(
+            new ProcessRequest(_options.ExecutablePath, ["-p", "/usage", "--output-format", "json"], Path.GetTempPath(), string.Empty, _usageTimeout),
+            cancellationToken);
+
+        var output = FindResultObject(process.StandardOutput);
+        var text = GetString(output, "result");
+
+        if (process.TimedOut)
+        {
+            return ServiceResult<AgentUsage>.Failure($"/usage did not finish within {_usageTimeout.TotalSeconds:0} seconds.");
+        }
+
+        if (text is null || (GetBool(output, "is_error") ?? false))
+        {
+            var detail = text ?? process.StandardError;
+            return ServiceResult<AgentUsage>.Failure($"/usage failed (exit code {process.ExitCode}). {detail.Trim()}".Trim());
+        }
+
+        return ServiceResult<AgentUsage>.Success(ClaudeUsageParser.Parse(text, DateTime.UtcNow));
+    }
+
+    private List<string> BuildArguments(AgentRequest request)
     {
         var arguments = new List<string> { "-p", "--output-format", "json", "--allowedTools" };
-        arguments.AddRange(request.AllowedTools);
+        arguments.AddRange(_options.AllowedTools);
 
-        if (!string.IsNullOrWhiteSpace(request.Model))
+        var model = string.IsNullOrWhiteSpace(request.Model) ? _options.DefaultModel : request.Model;
+        if (!string.IsNullOrWhiteSpace(model))
         {
             arguments.Add("--model");
-            arguments.Add(request.Model);
+            arguments.Add(model);
         }
 
-        if (request.MaxTurns is { } maxTurns)
-        {
-            arguments.Add("--max-turns");
-            arguments.Add(maxTurns.ToString(CultureInfo.InvariantCulture));
-        }
+        arguments.Add("--max-turns");
+        arguments.Add(_options.MaxTurns.ToString(CultureInfo.InvariantCulture));
 
         if (!string.IsNullOrWhiteSpace(request.JsonSchema))
         {
@@ -134,7 +168,7 @@ public sealed class ClaudeCodeRunner(IProcessRunner processRunner, IOptions<Clau
     /// The whole of stdout when it is one JSON object; otherwise (line-delimited output) the last line that is a JSON
     /// object with <c>type</c> "result". Null when neither is found.
     /// </summary>
-    internal static JsonObject? FindResultObject(string stdout)
+    private static JsonObject? FindResultObject(string stdout)
     {
         if (TryParseObject(stdout) is { } whole)
         {

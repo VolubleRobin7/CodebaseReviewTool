@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using CodebaseReviewTool.Git;
+using CodebaseReviewTool.Application.Common.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -14,7 +14,7 @@ namespace CodebaseReviewTool.RepositoryHosts.AzureDevOps;
 /// <summary>
 /// Typed <see cref="HttpClient"/> over the Azure DevOps REST API, from TFS 2017 (REST 3.0) to Azure DevOps Services
 /// (7.1). Authenticates with PAT basic auth, or with the Windows account when <c>DevOps:UseDefaultCredentials</c> is
-/// set (the primary handler is configured for that in <c>AddReviewCore</c>). Every versioned call must go through
+/// set (the primary handler is configured for that in <c>AddRepositoryHosts</c>). Every versioned call must go through
 /// <see cref="GetVersionedAsync"/> so it carries the configured or detected api-version.
 /// </summary>
 internal sealed partial class DevOpsClient : IDevOpsClient

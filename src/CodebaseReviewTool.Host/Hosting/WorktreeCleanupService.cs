@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Application.Repositories;
 using CodebaseReviewTool.Application.Reviews;
 using CodebaseReviewTool.Git;
@@ -19,7 +20,7 @@ namespace CodebaseReviewTool.Host.Hosting;
 public sealed class WorktreeCleanupService(
     IDbContextFactory<ReviewDbContext> dbContextFactory,
     IRepositoryRegistry registry,
-    WorktreeService worktreeService,
+    ISourceControl sourceControl,
     ReviewEvents events,
     IOptions<GitOptions> options,
     ILogger<WorktreeCleanupService> logger) : BackgroundService
@@ -29,7 +30,7 @@ public sealed class WorktreeCleanupService(
 
     private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
     private readonly IRepositoryRegistry _registry = registry;
-    private readonly WorktreeService _worktreeService = worktreeService;
+    private readonly ISourceControl _sourceControl = sourceControl;
     private readonly ReviewEvents _events = events;
     private readonly GitOptions _options = options.Value;
     private readonly ILogger<WorktreeCleanupService> _logger = logger;
@@ -88,7 +89,7 @@ public sealed class WorktreeCleanupService(
                     continue;
                 }
 
-                var result = await _worktreeService.RemoveAsync(repository, review.WorktreePath, cancellationToken);
+                var result = await _sourceControl.RemoveWorktreeAsync(repository, review.WorktreePath, cancellationToken);
                 if (!result.Succeeded)
                 {
                     _logger.LogWarning("Could not remove the worktree of review {ReviewId} at {Path}: {Error}", review.Id, review.WorktreePath, result.Detail);

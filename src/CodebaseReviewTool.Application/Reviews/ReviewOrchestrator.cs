@@ -1,15 +1,12 @@
 using System.Text.RegularExpressions;
-using CodebaseReviewTool.Agents;
-using CodebaseReviewTool.Agents.Claude;
+using CodebaseReviewTool.Application.Common.Extensions;
+using CodebaseReviewTool.Application.Common.Interfaces;
+using CodebaseReviewTool.Application.Common.Models;
 using CodebaseReviewTool.Application.Prompts;
 using CodebaseReviewTool.Application.Repositories;
 using CodebaseReviewTool.Domain.Entities;
 using CodebaseReviewTool.Domain.Enums;
-using CodebaseReviewTool.Git;
-using CodebaseReviewTool.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace CodebaseReviewTool.Application.Reviews;
 
@@ -23,22 +20,20 @@ namespace CodebaseReviewTool.Application.Reviews;
 /// step gets the issues schema and its output is parsed into <see cref="Issue"/> rows.
 /// </remarks>
 public sealed partial class ReviewOrchestrator(
-    IDbContextFactory<ReviewDbContext> dbContextFactory,
+    IReviewDbContextFactory dbContextFactory,
     ReviewEvents events,
     IRepositoryRegistry registry,
-    WorktreeService worktreeService,
+    ISourceControl sourceControl,
     IAgentRunner agentRunner,
-    IOptions<ClaudeOptions> agentOptions,
     ILogger<ReviewOrchestrator> logger)
 {
     private const int DiagramStepIndex = 1;
 
-    private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
+    private readonly IReviewDbContextFactory _dbContextFactory = dbContextFactory;
     private readonly ReviewEvents _events = events;
     private readonly IRepositoryRegistry _registry = registry;
-    private readonly WorktreeService _worktreeService = worktreeService;
+    private readonly ISourceControl _sourceControl = sourceControl;
     private readonly IAgentRunner _agentRunner = agentRunner;
-    private readonly ClaudeOptions _agentOptions = agentOptions.Value;
     private readonly ILogger<ReviewOrchestrator> _logger = logger;
 
     /// <summary>
@@ -48,14 +43,14 @@ public sealed partial class ReviewOrchestrator(
     /// </summary>
     public async Task RunAsync(int reviewId, CancellationToken cancellationToken)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = _dbContextFactory.CreateDbContext();
 
-        var review = await db.Reviews
-            .Include(r => r.StepRuns)
-            .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken)
+        var review = db.GetEntities<Review>()
+            .Where(r => r.Id == reviewId)
+            .FirstOrDefaultWithStepRuns()
             ?? throw new InvalidOperationException($"Review {reviewId} no longer exists.");
 
-        var steps = await db.FlowSteps.AsNoTracking().OrderBy(s => s.Step).ToListAsync(cancellationToken);
+        var steps = db.GetEntities<FlowStep>().OrderBy(s => s.Step).ToList();
         if (steps.Count == 0)
         {
             throw new InvalidOperationException("The flow has no steps.");
@@ -84,15 +79,15 @@ public sealed partial class ReviewOrchestrator(
         Publish(review);
     }
 
-    private async Task<PromptContext> BuildContextAsync(ReviewDbContext db, Review review, CancellationToken cancellationToken)
+    private async Task<PromptContext> BuildContextAsync(IReviewDbContext db, Review review, CancellationToken cancellationToken)
     {
-        var pullRequest = await db.PullRequests.AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == review.PullRequestId && p.RepositoryKey == review.RepositoryKey, cancellationToken)
+        var pullRequest = db.GetEntities<PullRequest>()
+            .FirstOrDefault(p => p.Id == review.PullRequestId && p.RepositoryKey == review.RepositoryKey)
             ?? throw new InvalidOperationException($"Pull request #{review.PullRequestId} is no longer in the cache.");
 
         var repositoryName = _registry.Find(review.RepositoryKey)?.DisplayName ?? review.RepositoryKey;
 
-        var changedFiles = await _worktreeService.GetChangedFilesAsync(
+        var changedFiles = await _sourceControl.GetChangedFilesAsync(
             review.WorktreePath, review.MergeBaseCommit, review.SourceCommit, cancellationToken);
 
         return new PromptContext(
@@ -113,7 +108,7 @@ public sealed partial class ReviewOrchestrator(
 
     /// <summary>Runs one step and records its outcome; returns false when the step failed and the review stopped.</summary>
     private async Task<bool> RunStepAsync(
-        ReviewDbContext db,
+        IReviewDbContext db,
         Review review,
         FlowStep step,
         int index,
@@ -142,13 +137,12 @@ public sealed partial class ReviewOrchestrator(
         _logger.LogInformation("Review {ReviewId}: step {Number} of {Count} started", review.Id, number, stepCount);
         Publish(review);
 
+        // A step without its own model or timeout uses the agent's configured defaults.
         var request = new AgentRequest(
             Prompt: prompt,
             WorkingDirectory: review.WorktreePath,
-            Model: step.Model ?? _agentOptions.DefaultModel,
-            Timeout: TimeSpan.FromMinutes(step.TimeoutMinutes ?? _agentOptions.TimeoutMinutes),
-            MaxTurns: _agentOptions.MaxTurns,
-            AllowedTools: _agentOptions.AllowedTools,
+            Model: step.Model,
+            Timeout: step.TimeoutMinutes is { } minutes ? TimeSpan.FromMinutes(minutes) : null,
             JsonSchema: isLast ? IssuesSchema.Schema : null);
 
         AgentResult result;
@@ -187,11 +181,16 @@ public sealed partial class ReviewOrchestrator(
                 return await FailAsync(db, review, run, number, cancellationToken);
             }
 
-            await db.Issues.Where(i => i.ReviewId == review.Id).ExecuteDeleteAsync(cancellationToken);
+            // Replaced in the same save that marks the step succeeded.
+            foreach (var stale in db.GetEntities<Issue>().Where(i => i.ReviewId == review.Id).ToList())
+            {
+                db.Remove(stale);
+            }
+
             foreach (var issue in parsed.Issues)
             {
                 issue.ReviewId = review.Id;
-                db.Issues.Add(issue);
+                db.Add(issue);
             }
 
             _logger.LogInformation("Review {ReviewId}: parsed {Count} issues", review.Id, parsed.Issues.Count);
@@ -204,7 +203,7 @@ public sealed partial class ReviewOrchestrator(
         return true;
     }
 
-    private async Task<bool> FailAsync(ReviewDbContext db, Review review, ReviewStepRun run, int number, CancellationToken cancellationToken)
+    private async Task<bool> FailAsync(IReviewDbContext db, Review review, ReviewStepRun run, int number, CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
         run.CompletedAt = now;

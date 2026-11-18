@@ -2,7 +2,6 @@ using CodebaseReviewTool.Agents;
 using CodebaseReviewTool.Api;
 using CodebaseReviewTool.Application;
 using CodebaseReviewTool.Application.Configuration;
-using CodebaseReviewTool.Application.Hosting;
 using CodebaseReviewTool.Git;
 using CodebaseReviewTool.Host.Hosting;
 using CodebaseReviewTool.Host.Tray;
@@ -92,7 +91,7 @@ public sealed class Program
         builder.Services.AddHostedService<DevOpsPollService>();
         builder.Services.AddHostedService<ReviewQueueService>();
         builder.Services.AddHostedService<WorktreeCleanupService>();
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<ClaudeUsageMonitor>());
+        builder.Services.AddHostedService<AgentUsageRefreshService>();
 
         builder.Services.AddRazorComponents()
             .AddInteractiveServerComponents();

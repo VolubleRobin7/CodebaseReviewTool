@@ -4,7 +4,7 @@ namespace CodebaseReviewTool.Application.Reviews;
 
 /// <summary>Identifies the review that changed.</summary>
 /// <param name="ReviewId">The review's database id.</param>
-/// <param name="PullRequestId">The DevOps id of the reviewed pull request.</param>
+/// <param name="PullRequestId">The host's id of the reviewed pull request.</param>
 /// <param name="RepositoryKey">The repository the pull request belongs to.</param>
 public sealed record ReviewChangedEventArgs(int ReviewId, int PullRequestId, string RepositoryKey);
 

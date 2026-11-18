@@ -1,5 +1,6 @@
 @using System.ComponentModel
 @using System.Diagnostics
+@using CodebaseReviewTool.Application.Common.Interfaces
 @using CodebaseReviewTool.Application.Repositories
 @using CodebaseReviewTool.Application.Reviews
 @using CodebaseReviewTool.Domain.Entities
@@ -16,7 +17,7 @@
 @inject IOptions<GitOptions> GitOptions
 @inject IRepositoryRegistry RepositoryRegistry
 @inject ReviewEvents ReviewEvents
-@inject WorktreeService WorktreeService
+@inject ISourceControl SourceControl
 
 <section class="section"
          id="worktrees">
@@ -173,7 +174,7 @@
                 return;
             }
 
-            var result = await WorktreeService.RemoveAsync(repository, review.WorktreePath, CancellationToken.None);
+            var result = await SourceControl.RemoveWorktreeAsync(repository, review.WorktreePath, CancellationToken.None);
             if (!result.Succeeded)
             {
                 _errors[review.Id] = result.Detail;

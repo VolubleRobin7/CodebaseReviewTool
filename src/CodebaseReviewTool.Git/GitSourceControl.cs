@@ -1,3 +1,6 @@
+using CodebaseReviewTool.Application.Common.Exceptions;
+using CodebaseReviewTool.Application.Common.Interfaces;
+using CodebaseReviewTool.Application.Common.Models;
 using CodebaseReviewTool.Infrastructure.Processes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -5,31 +8,87 @@ using Microsoft.Extensions.Options;
 namespace CodebaseReviewTool.Git;
 
 /// <summary>
-/// Creates, inspects and removes the worktree each review runs in. Worktrees live under <c>Git:WorktreeRoot</c> as
-/// <c>&lt;repositoryKey&gt;/pr-&lt;pullRequestId&gt;-r&lt;reviewId&gt;</c> and are detached at the pull request's source
-/// commit, so a branch checked out elsewhere never blocks one. Every git command runs with
+/// <see cref="ISourceControl"/> on git. Reads the configured clones' remotes, and creates, inspects and removes the
+/// worktree each review runs in. Worktrees live under <c>Git:WorktreeRoot</c> as
+/// <c>&lt;repositoryKey&gt;/pr-&lt;pullRequestId&gt;-r&lt;reviewId&gt;</c>. Every review git command runs with
 /// <c>Git:CommandTimeoutMinutes</c> and is logged with its elapsed time.
 /// </summary>
-public sealed class WorktreeService(GitRunner gitRunner, IOptions<GitOptions> options, ILogger<WorktreeService> logger)
+public sealed class GitSourceControl(
+    GitRunner gitRunner,
+    IOptions<GitOptions> options,
+    IOptions<RepositoriesOptions> repositories,
+    ILogger<GitSourceControl> logger) : ISourceControl
 {
     private const string _headsPrefix = "refs/heads/";
 
     private readonly GitRunner _gitRunner = gitRunner;
     private readonly GitOptions _options = options.Value;
-    private readonly ILogger<WorktreeService> _logger = logger;
+    private readonly ILogger<GitSourceControl> _logger = logger;
+
+    private readonly IReadOnlyList<ConfiguredClone> _clones = [.. repositories.Value.Items.Select((item, index) => new ConfiguredClone(
+        $"{RepositoriesOptions.SectionName}:{index}",
+        item.DisplayName,
+        item.LocalPath,
+        NullIfBlank(item.Remote),
+        NullIfBlank(item.Project),
+        NullIfBlank(item.Repository)))];
 
     private TimeSpan CommandTimeout => TimeSpan.FromMinutes(_options.CommandTimeoutMinutes);
 
-    /// <summary>The directory a review's worktree is created in.</summary>
-    public string GetWorktreePath(string repositoryKey, int pullRequestId, int reviewId) =>
-        Path.GetFullPath(Path.Combine(_options.WorktreeRoot, repositoryKey, $"pr-{pullRequestId}-r{reviewId}"));
+    IReadOnlyList<ConfiguredClone> ISourceControl.ConfiguredClones => _clones;
 
-    /// <summary>
-    /// Fetches (when <c>Git:FetchBeforeReview</c>), checks the source commit exists, adds a detached worktree at it and
-    /// works out the merge base with the remote-tracking target branch. Throws <see cref="WorktreeException"/> with a
-    /// readable message when any of that fails; a worktree added before the failure is removed again.
-    /// </summary>
-    public async Task<WorktreeInfo> CreateAsync(
+    async Task<ServiceResult<CloneRemote>> ISourceControl.ReadRemoteAsync(ConfiguredClone clone, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(clone);
+        var prefix = clone.Description;
+
+        var remotes = await _gitRunner.RunAsync(clone.LocalPath, ["remote"], cancellationToken: cancellationToken);
+        if (!remotes.Succeeded)
+        {
+            return ServiceResult<CloneRemote>.Failure($"{prefix}: '{clone.LocalPath}' is not a git repository ({FirstLine(remotes.StandardError)}).");
+        }
+
+        var remoteNames = remotes.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        string remoteName;
+        if (clone.RemoteName is { } configured)
+        {
+            if (!remoteNames.Contains(configured, StringComparer.Ordinal))
+            {
+                return ServiceResult<CloneRemote>.Failure(
+                    $"{prefix}: Remote '{configured}' does not exist in '{clone.LocalPath}' (remotes: {Describe(remoteNames)}).");
+            }
+
+            remoteName = configured;
+        }
+        else if (remoteNames.Contains("origin", StringComparer.Ordinal))
+        {
+            remoteName = "origin";
+        }
+        else if (remoteNames.Length == 1)
+        {
+            remoteName = remoteNames[0];
+        }
+        else
+        {
+            return ServiceResult<CloneRemote>.Failure(
+                $"{prefix}: cannot choose a remote in '{clone.LocalPath}' (remotes: {Describe(remoteNames)}); set {clone.ConfigurationKey}:Remote.");
+        }
+
+        var url = await _gitRunner.RunAsync(clone.LocalPath, ["remote", "get-url", remoteName], cancellationToken: cancellationToken);
+        if (!url.Succeeded)
+        {
+            return ServiceResult<CloneRemote>.Failure($"{prefix}: cannot read the URL of remote '{remoteName}' ({FirstLine(url.StandardError)}).");
+        }
+
+        // Redacted so a token embedded in an https remote never reaches the UI or a startup message.
+        return ServiceResult<CloneRemote>.Success(new CloneRemote(clone, remoteName, RemoveCredentials(url.StandardOutput.Trim())));
+    }
+
+    string ISourceControl.GetWorktreePath(string repositoryKey, int pullRequestId, int reviewId) =>
+        GetWorktreePath(repositoryKey, pullRequestId, reviewId);
+
+    async Task<WorktreeInfo> ISourceControl.CreateWorktreeAsync(
         ResolvedRepository repository,
         int pullRequestId,
         int reviewId,
@@ -65,7 +124,7 @@ public sealed class WorktreeService(GitRunner gitRunner, IOptions<GitOptions> op
         {
             // Left behind by a run that stopped part-way; clear it so the add below can reuse the name.
             _logger.LogWarning("Worktree path {Path} already exists; removing it before adding the worktree", path);
-            await RemoveAsync(repository, path, cancellationToken);
+            await RemoveWorktreeAsync(repository, path, cancellationToken);
         }
 
         string[] add = ["worktree", "add", "--detach", path, sourceCommit];
@@ -73,7 +132,7 @@ public sealed class WorktreeService(GitRunner gitRunner, IOptions<GitOptions> op
         if (!added.Succeeded)
         {
             // A stale registration (directory deleted by hand, worktree still registered) also blocks the add.
-            await RemoveAsync(repository, path, cancellationToken);
+            await RemoveWorktreeAsync(repository, path, cancellationToken);
             added = await RunAsync(repository.Key, repository.LocalPath, add, cancellationToken);
             if (!added.Succeeded)
             {
@@ -105,13 +164,12 @@ public sealed class WorktreeService(GitRunner gitRunner, IOptions<GitOptions> op
         catch (Exception)
         {
             // The caller only records a worktree that is complete, so one left here would never be cleaned up.
-            await RemoveAsync(repository, path, CancellationToken.None);
+            await RemoveWorktreeAsync(repository, path, CancellationToken.None);
             throw;
         }
     }
 
-    /// <summary>Lists the files changed between <paramref name="mergeBase"/> and <paramref name="sourceCommit"/>.</summary>
-    public async Task<IReadOnlyList<ChangedFile>> GetChangedFilesAsync(
+    async Task<IReadOnlyList<ChangedFile>> ISourceControl.GetChangedFilesAsync(
         string worktreePath,
         string mergeBase,
         string sourceCommit,
@@ -132,16 +190,63 @@ public sealed class WorktreeService(GitRunner gitRunner, IOptions<GitOptions> op
         return ParseNameStatus(result.StandardOutput);
     }
 
+    Task<WorktreeRemoveResult> ISourceControl.RemoveWorktreeAsync(ResolvedRepository repository, string worktreePath, CancellationToken cancellationToken) =>
+        RemoveWorktreeAsync(repository, worktreePath, cancellationToken);
+
+    /// <summary>
+    /// Removes a password or token embedded in an http(s) URL (<c>https://user:secret@host/...</c> becomes
+    /// <c>https://user@host/...</c>) so the URL is safe to display or log.
+    /// </summary>
+    private static string RemoveCredentials(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !uri.UserInfo.Contains(':'))
+        {
+            return url;
+        }
+
+        var builder = new UriBuilder(uri) { Password = string.Empty };
+        return builder.Uri.GetComponents(UriComponents.AbsoluteUri, UriFormat.UriEscaped);
+    }
+
+    internal static IReadOnlyList<ChangedFile> ParseNameStatus(string output)
+    {
+        var fields = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        var files = new List<ChangedFile>();
+
+        for (var i = 0; i < fields.Length; i++)
+        {
+            var status = fields[i].Trim();
+            if (status.Length == 0)
+            {
+                continue;
+            }
+
+            // Renames and copies carry two paths (old, new); every other status carries one.
+            var pathCount = status[0] is 'R' or 'C' ? 2 : 1;
+            if (i + pathCount >= fields.Length)
+            {
+                break;
+            }
+
+            files.Add(new ChangedFile(status, fields[i + pathCount]));
+            i += pathCount;
+        }
+
+        return files;
+    }
+
+    private string GetWorktreePath(string repositoryKey, int pullRequestId, int reviewId) =>
+        Path.GetFullPath(Path.Combine(_options.WorktreeRoot, repositoryKey, $"pr-{pullRequestId}-r{reviewId}"));
+
     /// <summary>
     /// Removes the worktree and prunes the clone's worktree list. When git cannot remove the directory (locked files,
-    /// paths too long for git) it is deleted directly, provided it lies under <c>Git:WorktreeRoot</c>. A path that is
-    /// already gone counts as removed. Expected failures are returned, not thrown.
+    /// paths too long for git) it is deleted directly, provided it lies under <c>Git:WorktreeRoot</c>.
     /// </summary>
     /// <remarks>
     /// git locks a worktree while <c>worktree add</c> runs, and the lock stays if the add is killed part-way. A locked
     /// worktree needs <c>--force</c> twice to be removed, and prune skips it, so a missing one is unlocked first.
     /// </remarks>
-    public async Task<WorktreeRemoveResult> RemoveAsync(ResolvedRepository repository, string worktreePath, CancellationToken cancellationToken)
+    private async Task<WorktreeRemoveResult> RemoveWorktreeAsync(ResolvedRepository repository, string worktreePath, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentException.ThrowIfNullOrWhiteSpace(worktreePath);
@@ -184,33 +289,6 @@ public sealed class WorktreeService(GitRunner gitRunner, IOptions<GitOptions> op
         await RunAsync(repository.Key, repository.LocalPath, ["worktree", "unlock", worktreePath], cancellationToken);
         await RunAsync(repository.Key, repository.LocalPath, prune, cancellationToken);
         return WorktreeRemoveResult.Success($"git worktree remove failed ({gitError}); deleted the folder and pruned instead.");
-    }
-
-    internal static IReadOnlyList<ChangedFile> ParseNameStatus(string output)
-    {
-        var fields = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
-        var files = new List<ChangedFile>();
-
-        for (var i = 0; i < fields.Length; i++)
-        {
-            var status = fields[i].Trim();
-            if (status.Length == 0)
-            {
-                continue;
-            }
-
-            // Renames and copies carry two paths (old, new); every other status carries one.
-            var pathCount = status[0] is 'R' or 'C' ? 2 : 1;
-            if (i + pathCount >= fields.Length)
-            {
-                break;
-            }
-
-            files.Add(new ChangedFile(status, fields[i + pathCount]));
-            i += pathCount;
-        }
-
-        return files;
     }
 
     private async Task<ProcessResult> RunAsync(string repositoryKey, string workingDirectory, string[] arguments, CancellationToken cancellationToken)
@@ -267,5 +345,15 @@ public sealed class WorktreeService(GitRunner gitRunner, IOptions<GitOptions> op
 
         var error = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
         return string.IsNullOrWhiteSpace(error) ? $"exit code {result.ExitCode}" : $"exit code {result.ExitCode}: {error.Trim()}";
+    }
+
+    private static string Describe(string[] remoteNames) => remoteNames.Length == 0 ? "none" : string.Join(", ", remoteNames);
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static string FirstLine(string text)
+    {
+        var line = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+        return string.IsNullOrEmpty(line) ? "no error output" : line;
     }
 }

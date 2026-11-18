@@ -1,18 +1,17 @@
 using System.Globalization;
 using System.Net;
+using CodebaseReviewTool.Application.Common.Interfaces;
+using CodebaseReviewTool.Application.Common.Models;
 using CodebaseReviewTool.Application.PullRequests;
 using CodebaseReviewTool.Application.Repositories;
 using CodebaseReviewTool.Application.Reviews;
 using CodebaseReviewTool.Domain.Enums;
-using CodebaseReviewTool.Git;
-using CodebaseReviewTool.RepositoryHosts.AzureDevOps;
-using Microsoft.Extensions.Options;
 
 namespace CodebaseReviewTool.Api;
 
 /// <summary>Body of <c>POST /api/reviews</c>: either the pull request's page URL, or its id (and repository).</summary>
 /// <param name="PullRequestUrl">The pull request page, e.g. <c>https://dev.azure.com/org/project/_git/repo/pullrequest/123</c>.</param>
-/// <param name="PullRequestId">The DevOps pull request id, when no URL is given.</param>
+/// <param name="PullRequestId">The host's pull request id, when no URL is given.</param>
 /// <param name="RepositoryKey">The configured repository's key; may be left out when only one repository is configured.</param>
 public sealed record StartReviewRequest(string? PullRequestUrl, int? PullRequestId, string? RepositoryKey);
 
@@ -75,14 +74,13 @@ public static class ReviewEndpoints
         StartReviewRequest request,
         HttpContext context,
         IRepositoryRegistry registry,
-        IOptions<DevOpsOptions> devOpsOptions,
-        IDevOpsClient devOps,
+        IRepositoryHost host,
         PullRequestCache cache,
         ReviewService reviews,
         ReviewStatusReader statusReader,
         CancellationToken cancellationToken)
     {
-        var target = ResolveTarget(request, registry, devOpsOptions.Value.OrganizationUrl);
+        var target = ResolveTarget(request, registry, host);
         if (target is not { Repository: { } repository, PullRequestId: var pullRequestId, Error: null })
         {
             return Problem(HttpStatusCode.BadRequest, "Invalid request", target.Error);
@@ -90,16 +88,16 @@ public static class ReviewEndpoints
 
         // Fetch rather than trust the cache: the caller has often just pushed, and the poller may not have seen the
         // new commit (or the new pull request) yet.
-        var fetched = await devOps.GetPullRequestAsync(repository, pullRequestId, cancellationToken);
+        var fetched = await host.GetPullRequestAsync(repository, pullRequestId, cancellationToken);
         if (!fetched.Succeeded)
         {
-            return fetched.StatusCode == HttpStatusCode.NotFound
+            return fetched.IsNotFound
                 ? Problem(HttpStatusCode.NotFound, "Pull request not found", $"Pull request #{pullRequestId} does not exist in '{repository.Key}'.")
                 : Problem(HttpStatusCode.BadGateway, "Azure DevOps request failed", fetched.Error);
         }
 
         var pullRequest = fetched.Value!;
-        if (!PullRequestCache.IsActive(pullRequest))
+        if (!pullRequest.IsActive)
         {
             return Problem(HttpStatusCode.Conflict, "Pull request is not active", $"Pull request #{pullRequestId} is {pullRequest.Status}.");
         }
@@ -149,11 +147,11 @@ public static class ReviewEndpoints
 
     private sealed record Target(ResolvedRepository? Repository, int PullRequestId, string? Error);
 
-    private static Target ResolveTarget(StartReviewRequest request, IRepositoryRegistry registry, string organizationUrl)
+    private static Target ResolveTarget(StartReviewRequest request, IRepositoryRegistry registry, IRepositoryHost host)
     {
         if (!string.IsNullOrWhiteSpace(request.PullRequestUrl))
         {
-            if (!AzureDevOpsUrl.TryParsePullRequestUrl(request.PullRequestUrl, organizationUrl, out var parts, out var idFromUrl))
+            if (!host.TryParsePullRequestUrl(request.PullRequestUrl, out var parts, out var idFromUrl))
             {
                 return Invalid("pullRequestUrl is not an Azure DevOps pull request URL (.../_git/<repo>/pullrequest/<id>).");
             }
@@ -163,10 +161,7 @@ public static class ReviewEndpoints
                 return Invalid($"pullRequestId {givenId} does not match pull request #{idFromUrl} in pullRequestUrl.");
             }
 
-            var match = registry.Repositories.FirstOrDefault(r =>
-                r.Organization.Equals(parts.Organization, StringComparison.OrdinalIgnoreCase)
-                && r.Project.Equals(parts.Project, StringComparison.OrdinalIgnoreCase)
-                && r.Repository.Equals(parts.Repository, StringComparison.OrdinalIgnoreCase));
+            var match = registry.Repositories.FirstOrDefault(parts.Matches);
             if (match is null)
             {
                 return Invalid($"Repository '{parts.Project}/{parts.Repository}' is not configured. Configured: {DescribeKeys(registry)}.");

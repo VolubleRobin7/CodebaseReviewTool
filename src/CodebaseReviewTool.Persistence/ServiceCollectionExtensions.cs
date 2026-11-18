@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Infrastructure.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -8,7 +9,10 @@ namespace CodebaseReviewTool.Persistence;
 
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registers the database options and the <see cref="ReviewDbContext"/> factory.</summary>
+    /// <summary>
+    /// Registers the database options, EF Core's <see cref="ReviewDbContext"/> factory and the
+    /// <see cref="IReviewDbContextFactory"/> Application uses.
+    /// </summary>
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -25,6 +29,8 @@ public static class ServiceCollectionExtensions
             var path = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value.Path;
             options.UseSqlite(ReviewDatabase.ConnectionString(path));
         });
+
+        services.AddSingleton<IReviewDbContextFactory, ReviewDbContextFactory>();
 
         return services;
     }

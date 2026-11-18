@@ -1,7 +1,8 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
+using CodebaseReviewTool.Application.Common.Models;
 using CodebaseReviewTool.Application.Hosting;
 using CodebaseReviewTool.Application.PullRequests;
 using CodebaseReviewTool.Application.Repositories;
-using CodebaseReviewTool.Git;
 using CodebaseReviewTool.RepositoryHosts.AzureDevOps;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -73,13 +74,13 @@ public sealed class DevOpsPollService(
         _control.PollStarted();
         try
         {
-            // The typed DevOps client is transient; one scope per poll gives it a fresh HttpClient from the factory.
+            // The host wraps a transient typed HttpClient; one scope per poll gives it a fresh one from the factory.
             using var scope = _scopeFactory.CreateScope();
-            var client = scope.ServiceProvider.GetRequiredService<IDevOpsClient>();
+            var host = scope.ServiceProvider.GetRequiredService<IRepositoryHost>();
 
             foreach (var repository in _registry.Repositories)
             {
-                await PollRepositoryAsync(client, repository, cancellationToken);
+                await PollRepositoryAsync(host, repository, cancellationToken);
             }
         }
         finally
@@ -88,22 +89,22 @@ public sealed class DevOpsPollService(
         }
     }
 
-    private async Task PollRepositoryAsync(IDevOpsClient client, ResolvedRepository repository, CancellationToken cancellationToken)
+    private async Task PollRepositoryAsync(IRepositoryHost host, ResolvedRepository repository, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await client.ListActivePullRequestsAsync(repository, cancellationToken);
+            var result = await host.ListActivePullRequestsAsync(repository, cancellationToken);
             if (!result.Succeeded)
             {
                 Fail(repository, result.Error ?? "Unknown error");
                 return;
             }
 
-            var merge = await _cache.MergeAsync(repository, result.Items, cancellationToken);
+            var merge = await _cache.MergeAsync(repository, result.Value!, cancellationToken);
             _control.RecordSuccess(repository.Key, DateTime.UtcNow);
             _logger.LogInformation(
                 "Polled {RepositoryKey}: {Active} active pull requests ({Added} added, {Updated} updated, {Closed} closed)",
-                repository.Key, result.Items.Count, merge.Added, merge.Updated, merge.Closed);
+                repository.Key, result.Value!.Count, merge.Added, merge.Updated, merge.Closed);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

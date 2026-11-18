@@ -1,32 +1,31 @@
+using CodebaseReviewTool.Application.Common.Extensions;
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Application.Repositories;
 using CodebaseReviewTool.Domain.Entities;
 using CodebaseReviewTool.Domain.Enums;
-using CodebaseReviewTool.Git;
-using CodebaseReviewTool.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace CodebaseReviewTool.Application.Reviews;
 
 /// <summary>Starts, re-runs and cancels reviews, and announces each change.</summary>
 public sealed class ReviewService(
-    IDbContextFactory<ReviewDbContext> dbContextFactory,
+    IReviewDbContextFactory dbContextFactory,
     ReviewQueue queue,
     ReviewRuns runs,
     ReviewEvents events,
     IRepositoryRegistry registry,
-    WorktreeService worktreeService,
+    ISourceControl sourceControl,
     ILogger<ReviewService> logger) : IDisposable
 {
     // Stopping the agent kills its process tree, which takes moments; this only guards against a hang.
     private static readonly TimeSpan _stopTimeout = TimeSpan.FromSeconds(30);
 
-    private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
+    private readonly IReviewDbContextFactory _dbContextFactory = dbContextFactory;
     private readonly ReviewQueue _queue = queue;
     private readonly ReviewRuns _runs = runs;
     private readonly ReviewEvents _events = events;
     private readonly IRepositoryRegistry _registry = registry;
-    private readonly WorktreeService _worktreeService = worktreeService;
+    private readonly ISourceControl _sourceControl = sourceControl;
     private readonly ILogger<ReviewService> _logger = logger;
 
     // Serialises the "already reviewing?" check with the insert, so a double click cannot queue two reviews.
@@ -46,18 +45,17 @@ public sealed class ReviewService(
         await _startGate.WaitAsync(cancellationToken);
         try
         {
-            await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            await using var db = _dbContextFactory.CreateDbContext();
 
-            var pullRequest = await db.PullRequests.FindAsync([pullRequestId, repositoryKey], cancellationToken)
+            var pullRequest = db.GetEntities<PullRequest>().FirstOrDefault(p => p.Id == pullRequestId && p.RepositoryKey == repositoryKey)
                 ?? throw new InvalidOperationException(
                     $"Pull request #{pullRequestId} in '{repositoryKey}' is not in the cache; wait for the next poll.");
 
             // State is derived, so load the reviews that could still be in flight (no error, not completed) with
             // their step runs and ask each one.
-            var unfinished = await db.Reviews
+            var unfinished = db.GetEntities<Review>()
                 .Where(r => r.PullRequestId == pullRequestId && r.RepositoryKey == repositoryKey && r.Error == null && r.CompletedAt == null)
-                .Include(r => r.StepRuns)
-                .ToListAsync(cancellationToken);
+                .ToListWithStepRuns();
 
             if (unfinished.FirstOrDefault(r => r.State is ReviewState.Queued or ReviewState.PreparingWorktree or ReviewState.Running) is { } active)
             {
@@ -75,7 +73,7 @@ public sealed class ReviewService(
                 WorktreePath = string.Empty,
                 QueuedAt = DateTime.UtcNow,
             };
-            db.Reviews.Add(review);
+            db.Add(review);
             await db.SaveChangesAsync(cancellationToken);
         }
         finally
@@ -101,11 +99,11 @@ public sealed class ReviewService(
         await _startGate.WaitAsync(cancellationToken);
         try
         {
-            await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            await using var db = _dbContextFactory.CreateDbContext();
 
-            review = await db.Reviews
-                .Include(r => r.StepRuns)
-                .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken)
+            review = db.GetEntities<Review>()
+                .Where(r => r.Id == reviewId)
+                .FirstOrDefaultWithStepRuns()
                 ?? throw new InvalidOperationException($"Review {reviewId} does not exist.");
 
             if (review.State is ReviewState.Queued or ReviewState.PreparingWorktree or ReviewState.Running)
@@ -113,21 +111,26 @@ public sealed class ReviewService(
                 throw new InvalidOperationException($"Review {reviewId} is {Describe(review.State)}; wait for it to finish.");
             }
 
-            var lastStep = await db.FlowSteps.MaxAsync(s => (int?)s.Step, cancellationToken);
+            var lastStep = db.GetEntities<FlowStep>().Max(s => (int?)s.Step);
 
-            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            // Removed and reset in one save, so a failure part-way leaves the review as it was.
+            foreach (var run in review.StepRuns.Where(s => s.Step >= step).ToList())
+            {
+                db.Remove(run);
+            }
 
-            await db.ReviewStepRuns.Where(s => s.ReviewId == reviewId && s.Step >= step).ExecuteDeleteAsync(cancellationToken);
             if (lastStep is not null && lastStep >= step)
             {
-                await db.Issues.Where(i => i.ReviewId == reviewId).ExecuteDeleteAsync(cancellationToken);
+                foreach (var issue in db.GetEntities<Issue>().Where(i => i.ReviewId == reviewId).ToList())
+                {
+                    db.Remove(issue);
+                }
             }
 
             review.Error = null;
             review.CompletedAt = null;
             review.CancelledAt = null;
             await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
         }
         finally
         {
@@ -152,12 +155,11 @@ public sealed class ReviewService(
         try
         {
             ReviewState state;
-            await using (var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
+            await using (var db = _dbContextFactory.CreateDbContext())
             {
-                var current = await db.Reviews
-                    .AsNoTracking()
-                    .Include(r => r.StepRuns)
-                    .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken)
+                var current = db.GetEntities<Review>()
+                    .Where(r => r.Id == reviewId)
+                    .FirstOrDefaultWithStepRuns()
                     ?? throw new InvalidOperationException($"Review {reviewId} does not exist.");
                 state = current.State;
             }
@@ -190,12 +192,12 @@ public sealed class ReviewService(
     /// <summary>Records a review whose run has stopped (or never started) as cancelled, or removes it when nothing finished.</summary>
     private async Task<ReviewCancelOutcome> RecordCancellationAsync(int reviewId, CancellationToken cancellationToken)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = _dbContextFactory.CreateDbContext();
 
         // Read again: the run may have finished a step, or the whole review, before it saw the cancellation.
-        var review = await db.Reviews
-            .Include(r => r.StepRuns)
-            .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken);
+        var review = db.GetEntities<Review>()
+            .Where(r => r.Id == reviewId)
+            .FirstOrDefaultWithStepRuns();
         if (review is null)
         {
             return ReviewCancelOutcome.Discarded;
@@ -210,7 +212,7 @@ public sealed class ReviewService(
         var outcome = ReviewCancelOutcome.Cancelled;
         if (!review.StepRuns.Any(s => s.State == StepRunState.Succeeded) && await TryRemoveWorktreeAsync(review, cancellationToken))
         {
-            db.Reviews.Remove(review);
+            db.Remove(review);
             outcome = ReviewCancelOutcome.Discarded;
             _logger.LogInformation("Review {ReviewId} was cancelled before any step finished; removed it", reviewId);
         }
@@ -242,7 +244,7 @@ public sealed class ReviewService(
     private async Task<bool> TryRemoveWorktreeAsync(Review review, CancellationToken cancellationToken)
     {
         var path = string.IsNullOrEmpty(review.WorktreePath)
-            ? _worktreeService.GetWorktreePath(review.RepositoryKey, review.PullRequestId, review.Id)
+            ? _sourceControl.GetWorktreePath(review.RepositoryKey, review.PullRequestId, review.Id)
             : review.WorktreePath;
 
         if (string.IsNullOrEmpty(review.WorktreePath) && !Directory.Exists(path))
@@ -257,7 +259,7 @@ public sealed class ReviewService(
             return false;
         }
 
-        var result = await _worktreeService.RemoveAsync(repository, path, cancellationToken);
+        var result = await _sourceControl.RemoveWorktreeAsync(repository, path, cancellationToken);
         if (!result.Succeeded)
         {
             _logger.LogWarning("Could not remove the worktree of cancelled review {ReviewId} at {Path}: {Error}", review.Id, path, result.Detail);

@@ -1,4 +1,4 @@
-using CodebaseReviewTool.Git;
+using CodebaseReviewTool.Application.Common.Models;
 
 namespace CodebaseReviewTool.Application.Repositories;
 

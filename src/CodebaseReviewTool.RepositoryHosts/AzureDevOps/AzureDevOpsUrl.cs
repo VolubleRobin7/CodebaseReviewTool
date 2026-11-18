@@ -135,21 +135,6 @@ public static partial class AzureDevOpsUrl
         return true;
     }
 
-    /// <summary>
-    /// Removes a password or token embedded in an http(s) URL (<c>https://user:secret@host/...</c> becomes
-    /// <c>https://user@host/...</c>) so the URL is safe to display or log.
-    /// </summary>
-    public static string RedactCredentials(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !uri.UserInfo.Contains(':'))
-        {
-            return url;
-        }
-
-        var builder = new UriBuilder(uri) { Password = string.Empty };
-        return builder.Uri.GetComponents(UriComponents.AbsoluteUri, UriFormat.UriEscaped);
-    }
-
     /// <summary>Azure DevOps Server: the remote must sit under the collection path on the collection's host.</summary>
     private static bool TryParseServerRemote(Uri remote, string[] remoteSegments, string? organizationUrl, [NotNullWhen(true)] out RemoteParts? parts)
     {

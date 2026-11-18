@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Infrastructure.Configuration;
 using CodebaseReviewTool.Infrastructure.Processes;
 using Microsoft.Extensions.Configuration;
@@ -9,7 +10,10 @@ namespace CodebaseReviewTool.Git;
 
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registers the git and repository options, <see cref="GitRunner"/> and <see cref="WorktreeService"/>.</summary>
+    /// <summary>
+    /// Registers the git and repository options, <see cref="GitRunner"/>, and <see cref="GitSourceControl"/> as the
+    /// <see cref="ISourceControl"/> Application uses.
+    /// </summary>
     public static IServiceCollection AddGit(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -40,7 +44,7 @@ public static class ServiceCollectionExtensions
         // Agents registers the same runner; whichever is first wins.
         services.TryAddSingleton<IProcessRunner, ProcessRunner>();
         services.AddSingleton<GitRunner>();
-        services.AddSingleton<WorktreeService>();
+        services.AddSingleton<ISourceControl, GitSourceControl>();
 
         return services;
     }

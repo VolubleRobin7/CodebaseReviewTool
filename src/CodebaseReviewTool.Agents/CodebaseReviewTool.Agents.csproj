@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Implements Application's IAgentRunner, once per AI tool (Claude Code today). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
@@ -10,11 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Temporary: ClaudeUsageMonitor in Application reads the CLI output with ClaudeCodeRunner.FindResultObject. -->
-    <InternalsVisibleTo Include="CodebaseReviewTool.Application" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <ProjectReference Include="..\CodebaseReviewTool.Application\CodebaseReviewTool.Application.csproj" />
     <ProjectReference Include="..\CodebaseReviewTool.Infrastructure\CodebaseReviewTool.Infrastructure.csproj" />
   </ItemGroup>
 

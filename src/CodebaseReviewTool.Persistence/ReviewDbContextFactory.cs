@@ -1,26 +1,10 @@
-using CodebaseReviewTool.Infrastructure.Configuration;
+using CodebaseReviewTool.Application.Common.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Design;
 
 namespace CodebaseReviewTool.Persistence;
 
-/// <summary>
-/// Used only by <c>dotnet ef</c>, so migrations can be added and listed without building the Host (whose startup
-/// validation needs the machine's real configuration). Points at a scratch database under the temp folder, never at
-/// the installed copy's database, or at <c>REVIEWTOOL_DB_PATH</c> when set.
-/// </summary>
-public sealed class ReviewDbContextFactory : IDesignTimeDbContextFactory<ReviewDbContext>
+/// <summary>Hands Application a new <see cref="ReviewDbContext"/> from EF Core's pooled-options factory.</summary>
+public sealed class ReviewDbContextFactory(IDbContextFactory<ReviewDbContext> dbContextFactory) : IReviewDbContextFactory
 {
-    private const string DefaultPath = @"%TEMP%\CodebaseReviewTool\design-time.db";
-
-    public ReviewDbContext CreateDbContext(string[] args)
-    {
-        var path = PathExpansion.Expand(Environment.GetEnvironmentVariable("REVIEWTOOL_DB_PATH") ?? DefaultPath);
-
-        var options = new DbContextOptionsBuilder<ReviewDbContext>()
-            .UseSqlite(ReviewDatabase.ConnectionString(path))
-            .Options;
-
-        return new ReviewDbContext(options);
-    }
+    IReviewDbContext IReviewDbContextFactory.CreateDbContext() => dbContextFactory.CreateDbContext();
 }

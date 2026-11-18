@@ -1,20 +1,20 @@
 @using System.Globalization
-@using CodebaseReviewTool.Agents.Claude
-@using CodebaseReviewTool.Application.Hosting
+@using CodebaseReviewTool.Application.Common.Models
+@using CodebaseReviewTool.Application.Usage
 
 @implements IDisposable
 
-@inject IClaudeUsage Usage
+@inject AgentUsageService Usage
 
 @* Renders nothing when /usage lists no session limit, which is the case when the CLI runs on an API key. *@
-@if (Usage.Snapshot?.Session is { } session)
+@if (Usage.Latest?.Session is { } session)
 {
     var percent = (int)Math.Round(session.PercentUsed, MidpointRounding.AwayFromZero);
 
-    <div class="@($"usage-meter {LevelClass(percent)}")" title="@Tooltip(Usage.Snapshot)">
+    <div class="@($"usage-meter {LevelClass(percent)}")" title="@Tooltip(Usage.Latest)">
         <span class="usage-label">Session usage</span>
 
-        <span aria-label="Claude session usage"
+        <span aria-label="Session usage"
               aria-valuemax="100"
               aria-valuemin="0"
               aria-valuenow="@percent"
@@ -33,11 +33,11 @@
         }
     </div>
 }
-else if (Usage.Snapshot is null && Usage.LastError is { } error)
+else if (Usage.Latest is null && Usage.LastError is { } error)
 {
     <div class="usage-meter usage-unavailable" title="@error">Usage unavailable</div>
 }
-else if (Usage.Snapshot is null)
+else if (Usage.Latest is null)
 {
     <div class="usage-meter usage-unavailable">Checking usage…</div>
 }
@@ -47,7 +47,7 @@ else if (Usage.Snapshot is null)
 
     public void Dispose() => Usage.Changed -= OnUsageChanged;
 
-    // The monitor raises Changed on its own thread; InvokeAsync moves the render onto this circuit's dispatcher.
+    // The refresher raises Changed on its own thread; InvokeAsync moves the render onto this circuit's dispatcher.
     private void OnUsageChanged() => _ = InvokeAsync(StateHasChanged);
 
     private static string LevelClass(int percent) => percent switch
@@ -57,7 +57,7 @@ else if (Usage.Snapshot is null)
         _ => string.Empty,
     };
 
-    private string Tooltip(ClaudeUsageSnapshot snapshot)
+    private string Tooltip(AgentUsage snapshot)
     {
         var lines = snapshot.Limits.Select(l =>
             $"{l.Name}: {Math.Round(l.PercentUsed, MidpointRounding.AwayFromZero)}% used{(l.Resets is null ? string.Empty : $", resets {l.Resets}")}");

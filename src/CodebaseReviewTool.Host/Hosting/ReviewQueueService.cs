@@ -1,8 +1,9 @@
+using CodebaseReviewTool.Application.Common.Exceptions;
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Application.Configuration;
 using CodebaseReviewTool.Application.Repositories;
 using CodebaseReviewTool.Application.Reviews;
 using CodebaseReviewTool.Domain.Entities;
-using CodebaseReviewTool.Git;
 using CodebaseReviewTool.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -26,7 +27,7 @@ public sealed class ReviewQueueService(
     ReviewRuns runs,
     ReviewEvents events,
     IRepositoryRegistry registry,
-    WorktreeService worktreeService,
+    ISourceControl sourceControl,
     ReviewOrchestrator orchestrator,
     IOptions<ReviewOptions> options,
     ILogger<ReviewQueueService> logger) : BackgroundService
@@ -38,7 +39,7 @@ public sealed class ReviewQueueService(
     private readonly ReviewRuns _runs = runs;
     private readonly ReviewEvents _events = events;
     private readonly IRepositoryRegistry _registry = registry;
-    private readonly WorktreeService _worktreeService = worktreeService;
+    private readonly ISourceControl _sourceControl = sourceControl;
     private readonly ReviewOrchestrator _orchestrator = orchestrator;
     private readonly ReviewOptions _options = options.Value;
     private readonly ILogger<ReviewQueueService> _logger = logger;
@@ -121,7 +122,7 @@ public sealed class ReviewQueueService(
             }
 
             // A worktree added just before the stop is not recorded yet; record it so it is listed and cleaned up.
-            var expectedPath = _worktreeService.GetWorktreePath(review.RepositoryKey, review.PullRequestId, review.Id);
+            var expectedPath = _sourceControl.GetWorktreePath(review.RepositoryKey, review.PullRequestId, review.Id);
             if (string.IsNullOrEmpty(review.WorktreePath) && Directory.Exists(expectedPath))
             {
                 review.WorktreePath = expectedPath;
@@ -226,7 +227,7 @@ public sealed class ReviewQueueService(
         var pullRequest = await db.PullRequests.FindAsync([review.PullRequestId, review.RepositoryKey], cancellationToken)
             ?? throw new WorktreeException($"Pull request #{review.PullRequestId} is no longer in the cache.");
 
-        var worktree = await _worktreeService.CreateAsync(
+        var worktree = await _sourceControl.CreateWorktreeAsync(
             repository, review.PullRequestId, review.Id, review.SourceCommit, pullRequest.TargetBranch, cancellationToken);
 
         review.WorktreePath = worktree.Path;

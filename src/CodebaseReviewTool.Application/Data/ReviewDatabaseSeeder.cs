@@ -1,26 +1,25 @@
+using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Application.Prompts;
 using CodebaseReviewTool.Domain.Entities;
-using CodebaseReviewTool.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 namespace CodebaseReviewTool.Application.Data;
 
-/// <summary>First-run work on the database, which needs the default prompts and so cannot live in Persistence.</summary>
+/// <summary>First-run data for a migrated database, which needs the default prompts and so lives here.</summary>
 public static class ReviewDatabaseSeeder
 {
     /// <summary>
-    /// Applies pending migrations and seeds a flow step for every shipped default prompt that has no row yet.
-    /// Existing rows are never overwritten, so the user's edits survive restarts; the one exception is a step with
-    /// no name, which gets the shipped one.
+    /// Seeds a flow step for every shipped default prompt that has no row yet. Existing rows are never overwritten, so
+    /// the user's edits survive restarts; the one exception is a step with no name, which gets the shipped one. The
+    /// database must already be migrated.
     /// </summary>
-    public static async Task MigrateAndSeedAsync(ReviewDbContext db, CancellationToken cancellationToken)
+    public static async Task SeedAsync(IReviewDbContextFactory dbContextFactory, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(dbContextFactory);
 
-        await db.Database.MigrateAsync(cancellationToken);
+        await using var db = dbContextFactory.CreateDbContext();
 
         var now = DateTime.UtcNow;
-        var existing = await db.FlowSteps.ToListAsync(cancellationToken);
+        var existing = db.GetEntities<FlowStep>().ToList();
 
         foreach (var step in existing.Where(s => string.IsNullOrWhiteSpace(s.Name)))
         {
@@ -29,7 +28,10 @@ public static class ReviewDatabaseSeeder
         }
 
         var missing = DefaultPrompts.Steps.Except(existing.Select(s => s.Step)).Select(step => DefaultPrompts.For(step)!);
-        db.FlowSteps.AddRange(missing.Select(d => new FlowStep { Step = d.Step, Name = d.Name, PromptText = d.Text, UpdatedAt = now }));
+        foreach (var prompt in missing)
+        {
+            db.Add(new FlowStep { Step = prompt.Step, Name = prompt.Name, PromptText = prompt.Text, UpdatedAt = now });
+        }
 
         await db.SaveChangesAsync(cancellationToken);
     }
