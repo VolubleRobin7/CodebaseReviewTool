@@ -1,4 +1,5 @@
-@using CodebaseReviewTool.Agents.Claude
+@using CodebaseReviewTool.Application.Agents
+@using CodebaseReviewTool.Application.Common.Interfaces
 @using CodebaseReviewTool.Application.Common.Models
 @using CodebaseReviewTool.Application.Configuration
 @using CodebaseReviewTool.Application.Hosting
@@ -16,7 +17,7 @@
 
 @implements IDisposable
 
-@inject IOptions<ClaudeOptions> ClaudeOptions
+@inject IAgentRegistry AgentRegistry
 @inject IOptions<DatabaseOptions> DatabaseOptions
 @inject IDbContextFactory<ReviewDbContext> DbContextFactory
 @inject IDevOpsClient DevOpsClient
@@ -25,7 +26,6 @@
 @inject NavigationManager NavigationManager
 @inject GitRunner GitRunner
 @inject IPollControl PollControl
-@inject IProcessRunner ProcessRunner
 @inject IRepositoryRegistry RepositoryRegistry
 @inject IOptions<ReviewOptions> ReviewOptions
 @inject IStartupShortcut StartupShortcut
@@ -164,12 +164,11 @@
                 @for (var i = 0; i < _drafts.Count; i++)
                 {
                     <StepEditor @key="_drafts[i].Step"
-                                DefaultModel="@ClaudeOptions.Value.DefaultModel"
-                                DefaultTimeoutMinutes="@ClaudeOptions.Value.TimeoutMinutes"
+                                Agent="AgentRegistry.Default"
+                                DefaultTimeoutMinutes="@ReviewOptions.Value.StepTimeoutMinutes"
                                 Draft="_drafts[i]"
                                 Index="i"
                                 IsLast="@(i == _drafts.Count - 1)"
-                                Models="ClaudeOptions.Value.Models"
                                 OnChanged="StateHasChanged"
                                 PullRequests="_pullRequests" />
                 }
@@ -283,18 +282,11 @@
             <dt>Database</dt>
             <dd class="mono">@DatabaseOptions.Value.Path</dd>
 
-            <dt>Claude executable</dt>
-            <dd class="mono">@ClaudeOptions.Value.ExecutablePath</dd>
-            <dt>Claude default model</dt>
-            <dd>@ClaudeOptions.Value.DefaultModel</dd>
-            <dt>Claude timeout</dt>
-            <dd>@ClaudeOptions.Value.TimeoutMinutes minutes</dd>
-            <dt>Claude max turns</dt>
-            <dd>@ClaudeOptions.Value.MaxTurns</dd>
-            <dt>Claude usage refresh</dt>
-            <dd>every @ClaudeOptions.Value.UsageRefreshMinutes minutes</dd>
-            <dt>Claude allowed tools</dt>
-            <dd class="mono">@string.Join("  ", ClaudeOptions.Value.AllowedTools)</dd>
+            @foreach (var agent in AgentRegistry.Agents)
+            {
+                <dt>@agent.DisplayName models</dt>
+                <dd>@ModelsText(agent)</dd>
+            }
 
             <dt>Git executable</dt>
             <dd class="mono">@GitOptions.Value.ExecutablePath</dd>
@@ -320,6 +312,8 @@
 
             <dt>Max concurrent reviews</dt>
             <dd>@ReviewOptions.Value.MaxConcurrent</dd>
+            <dt>Step timeout</dt>
+            <dd>@ReviewOptions.Value.StepTimeoutMinutes minutes, unless the step sets its own</dd>
 
             <dt>Tray enabled</dt>
             <dd>@YesNo(TrayOptions.Value.Enabled)</dd>
@@ -449,7 +443,11 @@
         _runAtLogin = StartupShortcut.IsEnabled;
         PollControl.Changed += OnPollChanged;
 
-        _checks.Add(new Check("Claude", CheckClaudeAsync));
+        foreach (var agent in AgentRegistry.Agents)
+        {
+            _checks.Add(new Check(agent.DisplayName, () => CheckAgentAsync(agent)));
+        }
+
         _checks.Add(new Check("git", CheckGitAsync));
         _checks.Add(new Check("DevOps", CheckDevOpsAsync));
         foreach (var repository in RepositoryRegistry.Repositories)
@@ -659,11 +657,10 @@
         StateHasChanged();
     }
 
-    private async Task<(bool Passed, string Detail)> CheckClaudeAsync()
+    private static async Task<(bool Passed, string Detail)> CheckAgentAsync(IAgent agent)
     {
-        var request = new ProcessRequest(ClaudeOptions.Value.ExecutablePath, ["--version"], Timeout: _checkTimeout);
-        var result = await ProcessRunner.RunAsync(request);
-        return Describe(result);
+        var result = await agent.HealthCheckAsync(CancellationToken.None);
+        return result.Succeeded ? (true, result.Value!) : (false, result.Error ?? "Unknown error");
     }
 
     private async Task<(bool Passed, string Detail)> CheckGitAsync()
@@ -715,6 +712,19 @@
     }
 
     private static string YesNo(bool value) => value ? "Yes" : "No";
+
+    // "opus (default; effort low to max), haiku (no effort setting)".
+    private static string ModelsText(IAgent agent) => string.Join(", ", agent.Models.Select((model, index) =>
+    {
+        var notes = new List<string>();
+        if (index == 0)
+        {
+            notes.Add("default");
+        }
+
+        notes.Add(model.Efforts.Count == 0 ? "no effort setting" : $"effort {model.Efforts[0]} to {model.Efforts[^1]}");
+        return $"{model.Name} ({string.Join("; ", notes)})";
+    }));
 
     private static string TabId(ConfigurationTab tab) => $"config-tab-{tab.ToString().ToLowerInvariant()}";
 

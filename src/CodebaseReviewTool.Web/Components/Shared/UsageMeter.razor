@@ -6,40 +6,49 @@
 
 @inject AgentUsageService Usage
 
-@* Renders nothing when /usage lists no session limit, which is the case when the CLI runs on an API key. *@
-@if (Usage.Latest?.Session is { } session)
+@*
+    One meter per agent, showing its limit closest to running out; the tooltip lists them all. An agent renders nothing
+    when it has no limits (Claude Code on an API key).
+*@
+@foreach (var reading in Usage.Readings)
 {
-    var percent = (int)Math.Round(session.PercentUsed, MidpointRounding.AwayFromZero);
+    var several = Usage.Readings.Count > 1;
 
-    <div class="@($"usage-meter {LevelClass(percent)}")" title="@Tooltip(Usage.Latest)">
-        <span class="usage-label">Session usage</span>
+    if (reading.Highest is { } limit)
+    {
+        var percent = (int)Math.Round(limit.PercentUsed, MidpointRounding.AwayFromZero);
+        var label = several ? $"{reading.DisplayName}: {limit.Name}" : limit.Name;
 
-        <span aria-label="Session usage"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="@percent"
-              class="usage-track"
-              role="progressbar">
+        <div class="@($"usage-meter {LevelClass(percent)}")" title="@Tooltip(reading)">
+            <span class="usage-label">@label</span>
 
-            <span class="usage-fill" style="@($"width: {percent.ToString(CultureInfo.InvariantCulture)}%")"></span>
+            <span aria-label="@label"
+                  aria-valuemax="100"
+                  aria-valuemin="0"
+                  aria-valuenow="@percent"
+                  class="usage-track"
+                  role="progressbar">
 
-        </span>
+                <span class="usage-fill" style="@($"width: {percent.ToString(CultureInfo.InvariantCulture)}%")"></span>
 
-        <span class="usage-value">@percent%</span>
+            </span>
 
-        @if (session.Resets is { } resets)
-        {
-            <span class="usage-reset">resets @resets</span>
-        }
-    </div>
-}
-else if (Usage.Latest is null && Usage.LastError is { } error)
-{
-    <div class="usage-meter usage-unavailable" title="@error">Usage unavailable</div>
-}
-else if (Usage.Latest is null)
-{
-    <div class="usage-meter usage-unavailable">Checking usage…</div>
+            <span class="usage-value">@percent%</span>
+
+            @if (limit.ResetsAt is { } resetsAt)
+            {
+                <span class="usage-reset">resets @FormatReset(resetsAt)</span>
+            }
+        </div>
+    }
+    else if (reading.Limits is null && reading.LastError is { } error)
+    {
+        <div class="usage-meter usage-unavailable" title="@error">@(several ? $"{reading.DisplayName} usage unavailable" : "Usage unavailable")</div>
+    }
+    else if (reading.Limits is null)
+    {
+        <div class="usage-meter usage-unavailable">@(several ? $"Checking {reading.DisplayName} usage…" : "Checking usage…")</div>
+    }
 }
 
 @code {
@@ -57,17 +66,26 @@ else if (Usage.Latest is null)
         _ => string.Empty,
     };
 
-    private string Tooltip(AgentUsage snapshot)
+    // "18 Nov, 7:30 pm" in this machine's time zone.
+    private static string FormatReset(DateTime utc)
     {
-        var lines = snapshot.Limits.Select(l =>
-            $"{l.Name}: {Math.Round(l.PercentUsed, MidpointRounding.AwayFromZero)}% used{(l.Resets is null ? string.Empty : $", resets {l.Resets}")}");
+        var local = DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime();
+        return local.ToString("d MMM, h:mm ", CultureInfo.InvariantCulture) + (local.Hour < 12 ? "am" : "pm");
+    }
 
-        var checkedLine = $"Checked {RelativeTime.Ago(snapshot.CheckedUtc)}";
-        if (Usage.LastError is { } error)
+    private string Tooltip(AgentUsageReading reading)
+    {
+        var lines = (reading.Limits ?? []).Select(l =>
+            $"{l.Name}: {Math.Round(l.PercentUsed, MidpointRounding.AwayFromZero)}% used{(l.ResetsAt is { } at ? $", resets {FormatReset(at)}" : string.Empty)}");
+
+        var checkedLine = reading.CheckedUtc is { } checkedUtc ? $"Checked {RelativeTime.Ago(checkedUtc)}" : "Not checked yet";
+        if (reading.LastError is { } error)
         {
             checkedLine += $"; the latest check failed: {error}";
         }
 
-        return string.Join('\n', lines.Append(checkedLine));
+        // With several agents the tooltip says whose limits these are.
+        var heading = Usage.Readings.Count > 1 ? [reading.DisplayName] : Array.Empty<string>();
+        return string.Join('\n', heading.Concat(lines).Append(checkedLine));
     }
 }

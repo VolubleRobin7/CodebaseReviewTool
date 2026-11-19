@@ -20,8 +20,14 @@ public sealed class ClaudeOptions
     /// <summary>Models offered per step on the Configuration page. The default model is always offered.</summary>
     public string[] Models { get; set; } = [];
 
-    [Range(1, 1440, ErrorMessage = "Claude:TimeoutMinutes must be between {1} and {2}.")]
-    public int TimeoutMinutes { get; set; } = 20;
+    /// <summary>
+    /// The effort levels each model accepts, lowest first, keyed by model name; a model left out takes no effort
+    /// setting. Each level must be one the CLI's <c>--effort</c> accepts (<see cref="EffortLevels"/>).
+    /// </summary>
+    public Dictionary<string, string[]> ModelEfforts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The levels <c>claude --effort</c> accepts, lowest first.</summary>
+    public static IReadOnlyList<string> EffortLevels { get; } = ["low", "medium", "high", "xhigh", "max"];
 
     [Range(1, 1000, ErrorMessage = "Claude:MaxTurns must be between {1} and {2}.")]
     public int MaxTurns { get; set; } = 50;

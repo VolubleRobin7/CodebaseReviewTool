@@ -1,3 +1,4 @@
+@using CodebaseReviewTool.Application.Common.Interfaces
 @using CodebaseReviewTool.Application.Prompts
 @using CodebaseReviewTool.Application.Repositories
 @using CodebaseReviewTool.Domain.Entities
@@ -215,15 +216,11 @@
     [Parameter]
     public bool IsLast { get; set; }
 
-    /// <summary>Models offered besides the default.</summary>
-    [Parameter]
-    public IReadOnlyList<string> Models { get; set; } = [];
-
-    /// <summary>The model used when a step sets none.</summary>
+    /// <summary>The agent the step runs on, which brings the models offered; the first is its default.</summary>
     [Parameter, EditorRequired]
-    public string DefaultModel { get; set; } = string.Empty;
+    public IAgent Agent { get; set; } = default!;
 
-    /// <summary>The configured default timeout, shown as the timeout's placeholder.</summary>
+    /// <summary>The timeout a step without its own uses, shown as the timeout's placeholder.</summary>
     [Parameter]
     public int DefaultTimeoutMinutes { get; set; }
 
@@ -242,13 +239,14 @@
         set => Draft.Model = value == DefaultModel ? null : value;
     }
 
-    // The default is always offered, and a saved model that is no longer configured stays selectable, so opening
-    // the page never changes a step.
+    private string DefaultModel => Agent.Models[0].Name;
+
+    // A saved model the agent no longer offers stays selectable, so opening the page never changes a step.
     private IEnumerable<string> ModelChoices
     {
         get
         {
-            var choices = Models.Contains(DefaultModel) ? Models : Models.Prepend(DefaultModel);
+            var choices = Agent.Models.Select(m => m.Name);
             return Draft.Model is { } current && !choices.Contains(current) ? choices.Append(current) : choices;
         }
     }

@@ -1,12 +1,15 @@
 using System.Text.RegularExpressions;
+using CodebaseReviewTool.Application.Agents;
 using CodebaseReviewTool.Application.Common.Extensions;
 using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Application.Common.Models;
+using CodebaseReviewTool.Application.Configuration;
 using CodebaseReviewTool.Application.Prompts;
 using CodebaseReviewTool.Application.Repositories;
 using CodebaseReviewTool.Domain.Entities;
 using CodebaseReviewTool.Domain.Enums;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CodebaseReviewTool.Application.Reviews;
 
@@ -24,7 +27,8 @@ public sealed partial class ReviewOrchestrator(
     ReviewEvents events,
     IRepositoryRegistry registry,
     ISourceControl sourceControl,
-    IAgentRunner agentRunner,
+    IAgentRegistry agents,
+    IOptions<ReviewOptions> reviewOptions,
     ILogger<ReviewOrchestrator> logger)
 {
     private const int DiagramStepIndex = 1;
@@ -33,7 +37,8 @@ public sealed partial class ReviewOrchestrator(
     private readonly ReviewEvents _events = events;
     private readonly IRepositoryRegistry _registry = registry;
     private readonly ISourceControl _sourceControl = sourceControl;
-    private readonly IAgentRunner _agentRunner = agentRunner;
+    private readonly IAgentRegistry _agents = agents;
+    private readonly ReviewOptions _reviewOptions = reviewOptions.Value;
     private readonly ILogger<ReviewOrchestrator> _logger = logger;
 
     /// <summary>
@@ -137,18 +142,23 @@ public sealed partial class ReviewOrchestrator(
         _logger.LogInformation("Review {ReviewId}: step {Number} of {Count} started", review.Id, number, stepCount);
         Publish(review);
 
-        // A step without its own model or timeout uses the agent's configured defaults.
-        var request = new AgentRequest(
+        // Every step runs on the default agent until steps can choose one.
+        var agent = _agents.Default;
+
+        // A step without its own model uses the agent's default (its first), and one without its own timeout uses
+        // Reviews:StepTimeoutMinutes. No effort is sent until steps can store one, so each model runs at its own
+        // default.
+        var request = new PromptRequest(
             Prompt: prompt,
             WorkingDirectory: review.WorktreePath,
-            Model: step.Model,
-            Timeout: step.TimeoutMinutes is { } minutes ? TimeSpan.FromMinutes(minutes) : null,
+            Model: step.Model ?? agent.Models[0].Name,
+            Timeout: TimeSpan.FromMinutes(step.TimeoutMinutes ?? _reviewOptions.StepTimeoutMinutes),
             JsonSchema: isLast ? IssuesSchema.Schema : null);
 
-        AgentResult result;
+        PromptResult result;
         try
         {
-            result = await _agentRunner.RunAsync(request, cancellationToken);
+            result = await agent.RunPromptAsync(request, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -157,24 +167,24 @@ public sealed partial class ReviewOrchestrator(
             return await FailAsync(db, review, run, number, cancellationToken);
         }
 
-        run.CommandLine = result.CommandLine;
+        // Until the step run table is reworked, the agent's diagnostics go in the old stderr column; the command line
+        // and exit code columns are left empty because they are part of the diagnostics.
         run.RawOutputJson = result.RawOutput;
-        run.ResultText = index == DiagramStepIndex ? StripFence(result.ResultText) : result.ResultText;
-        run.StdErr = result.StandardError;
-        run.ExitCode = result.ExitCode;
-        run.AgentSessionId = result.SessionId;
-        run.DurationMs = result.DurationMs;
+        run.ResultText = index == DiagramStepIndex ? StripFence(result.Text) : result.Text;
+        run.StdErr = result.Diagnostics ?? string.Empty;
+        run.AgentSessionId = result.ConversationId;
+        run.DurationMs = (long)result.Duration.TotalMilliseconds;
         run.CostUsd = result.CostUsd;
 
-        if (!result.Succeeded)
+        if (result.Error is { } error)
         {
-            run.Error = result.Error ?? "The agent run failed.";
+            run.Error = error;
             return await FailAsync(db, review, run, number, cancellationToken);
         }
 
         if (isLast)
         {
-            var parsed = IssuesParser.Parse(result.StructuredOutputJson, result.ResultText);
+            var parsed = IssuesParser.Parse(result.StructuredOutputJson, result.Text);
             if (!parsed.Succeeded)
             {
                 run.Error = $"The issues could not be read from the output: {parsed.Error}";

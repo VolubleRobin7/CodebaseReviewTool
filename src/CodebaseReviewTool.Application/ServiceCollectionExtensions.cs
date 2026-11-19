@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Application.Agents;
 using CodebaseReviewTool.Application.Configuration;
 using CodebaseReviewTool.Application.Hosting;
 using CodebaseReviewTool.Application.PullRequests;
@@ -30,6 +31,8 @@ public static class ServiceCollectionExtensions
         services.AddOptions<TrayOptions>()
             .Bind(configuration.GetSection(TrayOptions.SectionName))
             .ValidateOnStart();
+
+        services.AddSingleton<IAgentRegistry, AgentRegistry>();
 
         services.AddSingleton<RepositoryResolver>();
         services.AddSingleton<RepositoryRegistry>();

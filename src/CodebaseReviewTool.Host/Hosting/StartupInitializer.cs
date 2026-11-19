@@ -1,3 +1,4 @@
+using CodebaseReviewTool.Application.Agents;
 using CodebaseReviewTool.Application.Common.Interfaces;
 using CodebaseReviewTool.Application.Configuration;
 using CodebaseReviewTool.Application.Data;
@@ -12,10 +13,12 @@ namespace CodebaseReviewTool.Host.Hosting;
 
 /// <summary>
 /// One-off startup work, run after options validation and before Kestrel starts listening: resolves the configured
-/// repositories into <see cref="IRepositoryRegistry"/>, then migrates and seeds the database. A failure throws
-/// (<see cref="StartupValidationException"/> for configuration problems), which stops the host.
+/// repositories into <see cref="IRepositoryRegistry"/>, then migrates and seeds the database. A
+/// failure throws (<see cref="StartupValidationException"/> for configuration problems), which stops the host; that
+/// includes building <see cref="IAgentRegistry"/>, which happens here when it finds no agent or a duplicate key.
 /// </summary>
 public sealed class StartupInitializer(
+    IAgentRegistry agents,
     RepositoryResolver resolver,
     RepositoryRegistry registry,
     IDbContextFactory<ReviewDbContext> dbContextFactory,
@@ -23,6 +26,7 @@ public sealed class StartupInitializer(
     IOptions<DatabaseOptions> databaseOptions,
     ILogger<StartupInitializer> logger) : IHostedService
 {
+    private readonly IAgentRegistry _agents = agents;
     private readonly RepositoryResolver _resolver = resolver;
     private readonly RepositoryRegistry _registry = registry;
     private readonly IDbContextFactory<ReviewDbContext> _dbContextFactory = dbContextFactory;
@@ -37,6 +41,15 @@ public sealed class StartupInitializer(
             // The dotnet-ef tools build and briefly start the host to find the DbContext. Migrating here with the
             // migrations folder empty would create the schema from the model with no migration history.
             return;
+        }
+
+        foreach (var agent in _agents.Agents)
+        {
+            _logger.LogInformation(
+                "Agent {Key}: {DisplayName}, models {Models}",
+                agent.Key,
+                agent.DisplayName,
+                string.Join(", ", agent.Models.Select(m => m.Name)));
         }
 
         var repositories = await _resolver.ResolveAllAsync(cancellationToken);

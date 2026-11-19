@@ -12,27 +12,32 @@ namespace CodebaseReviewTool.Agents;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the Claude options and the <see cref="IAgentRunner"/> that runs each flow step and reads the plan's usage.
+    /// Registers an <see cref="IAgent"/> for every AI tool that has a section in configuration; Application's
+    /// agent registry collects them. A tool without a section is left out, and one with a section is validated at
+    /// startup, so a misconfigured tool stops the app.
     /// </summary>
     public static IServiceCollection AddAgents(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        services.AddOptions<ClaudeOptions>()
-            .Bind(configuration.GetSection(ClaudeOptions.SectionName))
-            .PostConfigure(o => o.ExecutablePath = PathExpansion.Expand(o.ExecutablePath))
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
-        // Checks that the executable exists, beyond the data annotations.
-        services.AddSingleton<IValidateOptions<ClaudeOptions>, ClaudeOptionsValidator>();
-
         // Git registers the same runner; whichever is first wins.
         services.TryAddSingleton<IProcessRunner, ProcessRunner>();
 
-        // The AI tool that runs each flow step; another tool means another IAgentRunner registered here.
-        services.AddSingleton<IAgentRunner, ClaudeCodeRunner>();
+        // Another tool means another block like this one; the first registered is the default for new steps.
+        if (configuration.GetSection(ClaudeOptions.SectionName).Exists())
+        {
+            services.AddOptions<ClaudeOptions>()
+                .Bind(configuration.GetSection(ClaudeOptions.SectionName))
+                .PostConfigure(o => o.ExecutablePath = PathExpansion.Expand(o.ExecutablePath))
+                .ValidateDataAnnotations()
+                .ValidateOnStart();
+
+            // Checks that the executable exists, beyond the data annotations.
+            services.AddSingleton<IValidateOptions<ClaudeOptions>, ClaudeOptionsValidator>();
+
+            services.AddSingleton<IAgent, ClaudeCodeAgent>();
+        }
 
         return services;
     }
